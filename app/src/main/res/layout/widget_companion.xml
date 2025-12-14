@@ -35,7 +35,7 @@
             android:contentDescription="@string/refresh"/>
     </LinearLayout>
 
-    <!-- 内容区占据剩余空间，按钮固定在底部 -->
+    <!-- Content area takes remaining space; buttons are pinned to the bottom -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -54,7 +54,7 @@
             android:lineSpacingMultiplier="1.2"
             android:lineSpacingExtra="0dp"/>
 
-        <!-- 使用 TextView 作为分隔线，避免 RemoteViews 不支持 View 类 -->
+        <!-- Use a TextView as a divider because RemoteViews do not allow plain View -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="1dp"

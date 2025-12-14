@@ -79,7 +79,7 @@ class MainActivity : ComponentActivity() {
             } else if (!hasMediaPermissions()) {
                 requestMediaPermissions()
             } else {
-                // READ_MEDIA_xxx 由播放/图片时系统再提示，避免两次弹窗
+                // READ_MEDIA_xxx will be requested by the system when media is accessed to avoid double dialogs
                 startApp()
             }
         }
@@ -201,7 +201,7 @@ class MainActivity : ComponentActivity() {
                 val selectedDeckName = items.getOrNull(position) ?: return
                 val deckId = mAnkiDroid.findDeckIdByName(selectedDeckName)
                 if (deckId != currentDeckId) {
-                    // 清空上一牌组的模板选择
+                    // Clear template selections from the previously chosen deck
                     UserPreferences.saveTemplateFilter(this@MainActivity, emptySet())
                     currentDeckId = deckId
                 }

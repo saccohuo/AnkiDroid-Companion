@@ -370,7 +370,7 @@ public class AnkiDroidHelper {
             return result;
         }
 
-        // 1) 首先从当前牌组的复习队列中获取 note/model 信息，保证只包含该牌组的实际卡片。
+        // 1) First fetch note/model info from the current deck's review queue to ensure only cards from this deck.
         Set<TemplateKey> templateKeys = new HashSet<>();
         Set<Long> modelIds = new HashSet<>();
         String selection = "deckID=?";
@@ -400,7 +400,7 @@ public class AnkiDroidHelper {
             }
         }
 
-        // 2) 若复习队列为空，再退回 Note 查询该牌组的模型集合。
+        // 2) If the review queue is empty, fall back to querying notes in the deck to collect model ids.
         if (modelIds.isEmpty()) {
             Uri noteUri = FlashCardsContract.Note.CONTENT_URI.buildUpon()
                     .appendQueryParameter(FlashCardsContract.Note.DECK_ID_QUERY_PARAM, String.valueOf(deckId))
@@ -425,7 +425,7 @@ public class AnkiDroidHelper {
             }
         }
 
-        // 3) 根据模型数生成完整模板列表（模型名 + 模板序号）。
+        // 3) Build the full template list from those models (model name + template ord).
         for (Long modelId : modelIds) {
             Uri modelUri = Uri.withAppendedPath(FlashCardsContract.Model.CONTENT_URI, Long.toString(modelId));
             Cursor modelCursor = mContext.getContentResolver().query(

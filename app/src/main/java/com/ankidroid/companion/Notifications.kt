@@ -183,7 +183,7 @@ class Notifications {
     }
 }
 
-// Helper for widget text sanitization，保留基础样式（粗体/斜体/上下标），列表/引用转换，并移除链接。
+// Helper for widget text sanitization: keep basic styles (bold/italic/sub/sup), convert lists/quotes, strip links.
 fun sanitizeForWidget(raw: String?, fallback: String?): CharSequence {
     val source = when {
         !raw.isNullOrBlank() -> raw
@@ -244,7 +244,7 @@ fun sanitizeForWidget(raw: String?, fallback: String?): CharSequence {
         .replace(Regex("(?is)<li[^>]*>"), "\n• ")
         .replace(Regex("(?is)</li>"), "")
     val withQuotes = listsHandled
-        // 引用块用特殊前缀区分，结尾增加一个空行保持视觉间距
+        // Blockquotes get a special prefix and trailing blank line for spacing
         .replace(Regex("(?is)<blockquote[^>]*>"), "\n❯ ")
         .replace(Regex("(?is)</blockquote>"), "\n\n")
 
@@ -279,7 +279,7 @@ fun sanitizeForWidget(raw: String?, fallback: String?): CharSequence {
         .trim()
     if (normalized.isBlank()) return ""
 
-    // 压缩多余的空行，去掉因移除图片/链接而残留的空白行
+    // Compress extra blank lines to remove gaps left by stripped images/links
     val builder = StringBuilder()
     var lastBlank = false
     normalized.lines().forEach { line ->
@@ -297,7 +297,7 @@ fun sanitizeForWidget(raw: String?, fallback: String?): CharSequence {
         }
     }
     val compacted = builder.toString().trim()
-    // 前缀兜底换行：如未换行则插入一行，避免段落黏连
+    // Ensure prefixes start on their own line to prevent paragraphs from sticking together
     val prefixPattern = Regex("(?m)([^\\n])\\s*(❯|➤|→|▪|✎|•)\\s")
     val ensured = compacted.replace(prefixPattern, "$1\n$2 ")
     return ensured.trim()
