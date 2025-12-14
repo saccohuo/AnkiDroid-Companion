@@ -27,4 +27,5 @@
     <string name="shared_section_label">Shared settings</string>
     <string name="notification_section_label">Notification only</string>
     <string name="widget_section_label">Widget only</string>
+    <string name="version_label">Version 0.1.0</string>
 </resources>
