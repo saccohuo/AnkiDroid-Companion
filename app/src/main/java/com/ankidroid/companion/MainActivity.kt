@@ -38,7 +38,7 @@ class MainActivity : ComponentActivity() {
     private fun createNotificationChannel() {
         val name = "AnkiNotificationChannel"
         val descriptionText = "Channel for anki notifications"
-        val importance = NotificationManager.IMPORTANCE_DEFAULT
+        val importance = NotificationManager.IMPORTANCE_HIGH
         val channel = NotificationChannel("channel_id", name, importance).apply {
             description = descriptionText
         }

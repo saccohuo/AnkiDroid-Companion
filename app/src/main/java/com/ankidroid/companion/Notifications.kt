@@ -24,6 +24,7 @@ class Notifications {
     fun showNotification(context: Context, card: CardInfo?, deckName: String, isSilent: Boolean) {
         Log.i("Notifications", "showNotification called")
         val builder: NotificationCompat.Builder
+        val publicBuilder: NotificationCompat.Builder
         val collapsedView = RemoteViews(context.packageName, R.layout.notification_collapsed)
 
         // There is a card to show, show a notification with the expanded view.
@@ -87,7 +88,16 @@ class Notifications {
                 .setContentTitle("Anki • $deckName")
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setSilent(isSilent)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setOngoing(true)
+
+            val publicText = sanitizeText(card.rawAnswer, card.simpleAnswer, 200)
+            publicBuilder = NotificationCompat.Builder(context, "channel_id")
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle(if (deckName.isNotBlank()) "Anki • $deckName" else context.getString(R.string.app_name))
+                .setContentText(publicText)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(publicText))
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         } else {
             collapsedView.setTextViewText(R.id.textViewCollapsedHeader, "Congrats! You've finished the deck!")
             collapsedView.setTextViewText(R.id.textViewCollapsedTitle, "Anki")
@@ -104,10 +114,18 @@ class Notifications {
                 .setContentTitle("Anki")
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setSilent(isSilent)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setOngoing(false)
+
+            publicBuilder = NotificationCompat.Builder(context, "channel_id")
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle("Anki")
+                .setContentText("Congrats! You've finished the deck!")
+                .setStyle(NotificationCompat.BigTextStyle().bigText("Congrats! You've finished the deck!"))
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         }
 
-        val notification: Notification = builder.build()
+        val notification: Notification = builder.setPublicVersion(publicBuilder.build()).build()
 
         val notificationManager: NotificationManager =
             context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
