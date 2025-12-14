@@ -29,8 +29,30 @@ class NotificationReceiver : BroadcastReceiver() {
             return
         }
 
+        // Sync with top of queue; if different, update state and ask user to tap again.
+        val top = mAnkiDroid.getTopCardForDeck(localState.deckId)
+        if (top != null && (top.noteID != localState.noteID || top.cardOrd != localState.cardOrd)) {
+            mAnkiDroid.storeState(localState.deckId, top)
+            Log.w("Notifications", "Card updated at top of queue; user should tap again.")
+            if (UserPreferences.getNotificationsEnabled(context)) {
+                Notifications().showNotification(context, top, mAnkiDroid.currentDeckName, true)
+            }
+            return
+        }
+
         Log.i("Notifications", "localState.cardOrd: ${localState.cardOrd}, localState.noteID: ${localState.noteID}")
-        mAnkiDroid.reviewCard(localState.noteID, localState.cardOrd, localState.cardStartTime, ease)
+        val ok = mAnkiDroid.reviewCard(localState.noteID, localState.cardOrd, localState.cardStartTime, ease)
+        if (!ok) {
+            Log.w("Notifications", "Review failed (card changed); refreshing state.")
+            val refreshed = mAnkiDroid.queryCurrentScheduledCard(localState.deckId)
+            if (refreshed != null) {
+                mAnkiDroid.storeState(localState.deckId, refreshed)
+                if (UserPreferences.getNotificationsEnabled(context)) {
+                    Notifications.create().showNotification(context, refreshed, mAnkiDroid.currentDeckName, true)
+                }
+            }
+            return
+        }
 
         // Move to next card
         val nextCard = mAnkiDroid.queryCurrentScheduledCard(localState.deckId)

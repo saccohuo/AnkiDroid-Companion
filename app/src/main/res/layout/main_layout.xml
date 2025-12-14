@@ -207,6 +207,25 @@
             android:inputType="number"
             android:hint="@string/widget_interval_hint" />
 
+        <TextView
+            android:id="@+id/widgetModeLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:layout_marginTop="4dp"
+            android:text="@string/widget_mode_label" />
+
+        <Spinner
+            android:id="@+id/widgetModeSpinner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@android:drawable/btn_dropdown"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:layout_marginBottom="12dp"
+            android:spinnerMode="dropdown" />
+
     </LinearLayout>
 
     <LinearLayout

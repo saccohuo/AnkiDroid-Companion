@@ -97,6 +97,7 @@ class MainActivity : ComponentActivity() {
 
         setDecksSpinner()
         setFieldModeSpinner()
+        setWidgetModeSpinner()
         setTemplateFilterCheckboxes()
         setNotificationsToggle()
         setWidgetIntervalInput()
@@ -117,6 +118,8 @@ class MainActivity : ComponentActivity() {
         findViewById<Spinner>(R.id.spinner1).visibility = View.GONE
         findViewById<TextView>(R.id.fieldModeLabel).visibility = View.GONE
         findViewById<Spinner>(R.id.fieldModeSpinner).visibility = View.GONE
+        findViewById<TextView>(R.id.widgetModeLabel).visibility = View.GONE
+        findViewById<Spinner>(R.id.widgetModeSpinner).visibility = View.GONE
         findViewById<TextView>(R.id.templateFilterLabel).visibility = View.GONE
         findViewById<View>(R.id.templateCheckboxContainer).visibility = View.GONE
         findViewById<TextView>(R.id.sharedSectionLabel).visibility = View.GONE
@@ -127,6 +130,8 @@ class MainActivity : ComponentActivity() {
         findViewById<TextView>(R.id.notificationsHint).visibility = View.GONE
         findViewById<TextView>(R.id.widgetIntervalLabel).visibility = View.GONE
         findViewById<EditText>(R.id.widgetIntervalInput).visibility = View.GONE
+        findViewById<TextView>(R.id.widgetModeLabel).visibility = View.GONE
+        findViewById<Spinner>(R.id.widgetModeSpinner).visibility = View.GONE
         findViewById<TextView>(R.id.answerLinesLabel).visibility = View.GONE
         findViewById<EditText>(R.id.answerLinesInput).visibility = View.GONE
         findViewById<Button>(R.id.mainRefreshButton).visibility = View.GONE
@@ -154,6 +159,52 @@ class MainActivity : ComponentActivity() {
                 if (hasMediaPermissions() && mAnkiDroid.isPermissionGranted) {
                     startApp()
                 }
+            }
+        }
+    }
+
+    private fun setWidgetModeSpinner() {
+        val spinner = findViewById<Spinner>(R.id.widgetModeSpinner)
+        spinner.visibility = View.VISIBLE
+        findViewById<TextView>(R.id.widgetModeLabel).visibility = View.VISIBLE
+
+        val options = listOf(
+            getString(R.string.widget_mode_queue),
+            getString(R.string.widget_mode_random)
+        )
+
+        val adapter: ArrayAdapter<String> =
+            ArrayAdapter<String>(this, android.R.layout.simple_spinner_dropdown_item, options)
+        spinner.adapter = adapter
+
+        val currentMode = UserPreferences.getWidgetMode(this)
+        val startIndex = when (currentMode) {
+            UserPreferences.WidgetMode.QUEUE -> 0
+            UserPreferences.WidgetMode.RANDOM -> 1
+        }
+        spinner.setSelection(startIndex)
+
+        spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(
+                parent: AdapterView<*>?,
+                view: View?,
+                position: Int,
+                id: Long
+            ) {
+                val mode = when (position) {
+                    0 -> UserPreferences.WidgetMode.QUEUE
+                    else -> UserPreferences.WidgetMode.RANDOM
+                }
+                UserPreferences.saveWidgetMode(this@MainActivity, mode)
+                // Refresh widget to apply mode change immediately
+                CompanionWidgetProvider().onReceive(
+                    this@MainActivity,
+                    Intent(CompanionWidgetProvider.ACTION_REFRESH).apply { setClass(this@MainActivity, CompanionWidgetProvider::class.java) }
+                )
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) {
+                // no-op
             }
         }
     }

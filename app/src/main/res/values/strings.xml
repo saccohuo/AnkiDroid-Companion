@@ -28,4 +28,7 @@
     <string name="notification_section_label">Notification only</string>
     <string name="widget_section_label">Widget only</string>
     <string name="version_label">Version 0.1.0</string>
+    <string name="widget_mode_label">Widget mode</string>
+    <string name="widget_mode_queue">Strict queue (feedback allowed)</string>
+    <string name="widget_mode_random">Random card (no feedback)</string>
 </resources>

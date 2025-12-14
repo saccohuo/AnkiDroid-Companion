@@ -6,8 +6,11 @@ import android.appwidget.AppWidgetProvider;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.Bundle;
 import android.widget.RemoteViews;
+import com.ankidroid.companion.UserPreferences.WidgetMode;
 
 public class CompanionWidgetProvider extends AppWidgetProvider {
     public static final String ACTION_REFRESH = "com.ankidroid.companion.widget.REFRESH";
@@ -16,6 +19,19 @@ public class CompanionWidgetProvider extends AppWidgetProvider {
     public static final String ACTION_EASE_2 = "com.ankidroid.companion.widget.EASE_2";
     public static final String ACTION_EASE_3 = "com.ankidroid.companion.widget.EASE_3";
     public static final String ACTION_EASE_4 = "com.ankidroid.companion.widget.EASE_4";
+    public static final String ACTION_RANDOM_PREV = "com.ankidroid.companion.widget.RANDOM_PREV";
+    public static final String ACTION_RANDOM_NEXT = "com.ankidroid.companion.widget.RANDOM_NEXT";
+    public static final String ACTION_RANDOM_REFRESH = "com.ankidroid.companion.widget.RANDOM_REFRESH";
+    public static final String ACTION_RANDOM_RESERVED = "com.ankidroid.companion.widget.RANDOM_RESERVED";
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private static long lastToastTimeMs = 0L;
+    private static final long TOAST_COOLDOWN_MS = 3000L;
+    private static boolean pendingRetry = false;
+    private static long pendingNoteId = -1;
+    private static int pendingOrd = -1;
+    // Random mode cache
+    private static final java.util.LinkedList<CardInfo> randomQueue = new java.util.LinkedList<>();
+    private static int randomIndex = -1;
 
     @Override
     public void onUpdate(Context context, AppWidgetManager appWidgetManager, int[] appWidgetIds) {
@@ -38,6 +54,9 @@ public class CompanionWidgetProvider extends AppWidgetProvider {
             }
             launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             context.startActivity(launch);
+        } else if (ACTION_RANDOM_PREV.equals(action) || ACTION_RANDOM_NEXT.equals(action) ||
+                ACTION_RANDOM_REFRESH.equals(action) || ACTION_RANDOM_RESERVED.equals(action)) {
+            handleRandomAction(context, action);
         } else if (ACTION_EASE_1.equals(action)) {
             respondCard(context, AnkiDroidHelper.EASE_1);
         } else if (ACTION_EASE_2.equals(action)) {
@@ -61,10 +80,24 @@ public class CompanionWidgetProvider extends AppWidgetProvider {
 
         if (state != null) {
             deckName = helper.getApi().getDeckName(state.deckId);
-            card = helper.queryCurrentScheduledCard(state.deckId);
-            if (card != null) {
-                helper.storeState(state.deckId, card);
+            WidgetMode mode = UserPreferences.INSTANCE.getWidgetMode(context);
+            if (mode == WidgetMode.QUEUE) {
+                // Re-read the latest content for the current top-of-queue card.
+                card = helper.getTopCardForDeck(state.deckId);
+            } else {
+                // Random mode: keep current random card if exists; otherwise load a random one.
+                if (randomIndex >= 0 && randomIndex < randomQueue.size()) {
+                    card = randomQueue.get(randomIndex);
+                } else {
+                    card = helper.queryCurrentScheduledCard(state.deckId, WidgetMode.RANDOM);
+                    if (card != null) {
+                        randomQueue.clear();
+                        randomQueue.add(card);
+                        randomIndex = 0;
+                    }
+                }
             }
+            if (card != null) helper.storeState(state.deckId, card);
         }
 
         for (int id : ids) {
@@ -79,6 +112,7 @@ public class CompanionWidgetProvider extends AppWidgetProvider {
         StoredState state = helper.getStoredState();
         String deckName = state != null ? helper.getApi().getDeckName(state.deckId) : "";
         FieldMode mode = UserPreferences.INSTANCE.getFieldMode(context);
+        WidgetMode widgetMode = UserPreferences.INSTANCE.getWidgetMode(context);
 
         // Choose short labels on narrow widgets to avoid inflating button height
         boolean useShortLabels = false;
@@ -111,7 +145,7 @@ public class CompanionWidgetProvider extends AppWidgetProvider {
         views.setBoolean(R.id.widgetButtonEasy, "setSingleLine", true);
 
         if (card == null && state != null && state.cardOrd != -1) {
-            card = helper.queryCurrentScheduledCard(state.deckId);
+            card = helper.queryCurrentScheduledCard(state.deckId, widgetMode);
         }
 
         if (card != null) {
@@ -147,10 +181,24 @@ public class CompanionWidgetProvider extends AppWidgetProvider {
                 views.setTextViewText(R.id.widgetBack, back);
             }
             views.setViewVisibility(R.id.widgetButtons, showButtons ? android.view.View.VISIBLE : android.view.View.GONE);
-            views.setOnClickPendingIntent(R.id.widgetButtonAgain, getPendingIntent(context, ACTION_EASE_1));
-            views.setOnClickPendingIntent(R.id.widgetButtonHard, getPendingIntent(context, ACTION_EASE_2));
-            views.setOnClickPendingIntent(R.id.widgetButtonGood, getPendingIntent(context, ACTION_EASE_3));
-            views.setOnClickPendingIntent(R.id.widgetButtonEasy, getPendingIntent(context, ACTION_EASE_4));
+            if (widgetMode == WidgetMode.QUEUE) {
+                views.setViewVisibility(R.id.widgetButtonAgain, android.view.View.VISIBLE);
+                views.setViewVisibility(R.id.widgetButtonHard, android.view.View.VISIBLE);
+                views.setViewVisibility(R.id.widgetButtonGood, android.view.View.VISIBLE);
+                views.setViewVisibility(R.id.widgetButtonEasy, android.view.View.VISIBLE);
+                views.setOnClickPendingIntent(R.id.widgetButtonAgain, getPendingIntent(context, ACTION_EASE_1));
+                views.setOnClickPendingIntent(R.id.widgetButtonHard, getPendingIntent(context, ACTION_EASE_2));
+                views.setOnClickPendingIntent(R.id.widgetButtonGood, getPendingIntent(context, ACTION_EASE_3));
+                views.setOnClickPendingIntent(R.id.widgetButtonEasy, getPendingIntent(context, ACTION_EASE_4));
+            } else {
+                // Only Prev/Next for random mode; hide other buttons to save space.
+                views.setTextViewText(R.id.widgetButtonAgain, "Prev");
+                views.setTextViewText(R.id.widgetButtonHard, "Next");
+                views.setViewVisibility(R.id.widgetButtonGood, android.view.View.GONE);
+                views.setViewVisibility(R.id.widgetButtonEasy, android.view.View.GONE);
+                views.setOnClickPendingIntent(R.id.widgetButtonAgain, getPendingIntent(context, ACTION_RANDOM_PREV));
+                views.setOnClickPendingIntent(R.id.widgetButtonHard, getPendingIntent(context, ACTION_RANDOM_NEXT));
+            }
         } else {
             views.setTextViewText(R.id.widgetTitle, context.getString(R.string.app_name));
             views.setTextViewText(R.id.widgetFront, context.getString(R.string.widget_empty_prompt));
@@ -182,23 +230,160 @@ public class CompanionWidgetProvider extends AppWidgetProvider {
         return Math.max(newlines + 1, approx + 1);
     }
 
+    private void showToast(Context context, String msg) {
+        long now = System.currentTimeMillis();
+        if (now - lastToastTimeMs < TOAST_COOLDOWN_MS) {
+            return;
+        }
+        lastToastTimeMs = now;
+        handler.post(() ->
+                android.widget.Toast.makeText(context.getApplicationContext(), msg, android.widget.Toast.LENGTH_SHORT).show()
+        );
+    }
+
+    private void handleRandomAction(Context context, String action) {
+        AnkiDroidHelper helper = new AnkiDroidHelper(context);
+        StoredState state = helper.getStoredState();
+        if (state == null || state.deckId == -1) {
+            refreshAndUpdate(context);
+            return;
+        }
+        ensureRandomCache(context, helper, state.deckId);
+        switch (action) {
+            case ACTION_RANDOM_PREV:
+                if (randomIndex > 0) randomIndex--;
+                break;
+            case ACTION_RANDOM_NEXT:
+                if (randomIndex < randomQueue.size() - 1) {
+                    randomIndex++;
+                } else {
+                    // If at end, fetch another random and append
+                    CardInfo more = helper.queryCurrentScheduledCard(state.deckId, WidgetMode.RANDOM);
+                    if (more != null) {
+                        randomQueue.add(more);
+                        randomIndex = randomQueue.size() - 1;
+                    }
+                }
+                break;
+            case ACTION_RANDOM_REFRESH:
+            case ACTION_REFRESH:
+                randomQueue.clear();
+                randomIndex = -1;
+                ensureRandomCache(context, helper, state.deckId);
+                break;
+            case ACTION_RANDOM_RESERVED:
+                // Hold: do nothing, just stay on current
+                break;
+        }
+        if (randomIndex >= 0 && randomIndex < randomQueue.size()) {
+            CardInfo current = randomQueue.get(randomIndex);
+            helper.storeState(state.deckId, current);
+        }
+        refreshAndUpdate(context);
+    }
+
+    private void ensureRandomCache(Context context, AnkiDroidHelper helper, long deckId) {
+        if (!randomQueue.isEmpty() && randomIndex >= 0 && randomIndex < randomQueue.size()) {
+            return;
+        }
+        int target = UserPreferences.INSTANCE.getRandomCacheSize(context);
+        randomQueue.clear();
+        for (int i = 0; i < target; i++) {
+            CardInfo c = helper.queryCurrentScheduledCard(deckId, WidgetMode.RANDOM);
+            if (c != null) {
+                randomQueue.add(c);
+            }
+        }
+        randomIndex = randomQueue.isEmpty() ? -1 : 0;
+    }
+
     private void respondCard(Context context, int ease) {
         AnkiDroidHelper helper = new AnkiDroidHelper(context);
         StoredState state = helper.getStoredState();
         if (state == null || state.cardOrd == -1) {
+            android.util.Log.w("CompanionWidget", "No stored state; refreshing.");
             refreshAndUpdate(context);
             return;
         }
-        helper.reviewCard(state.noteID, state.cardOrd, state.cardStartTime, ease);
-        CardInfo next = helper.queryCurrentScheduledCard(state.deckId);
-        if (next != null) {
-            helper.storeState(state.deckId, next);
-        } else {
-            CardInfo empty = new CardInfo();
-            empty.cardOrd = -1;
-            empty.noteID = -1;
-            helper.storeState(state.deckId, empty);
+        WidgetMode mode = UserPreferences.INSTANCE.getWidgetMode(context);
+        if (mode == WidgetMode.RANDOM) {
+            // In random mode, feedback buttons repurposed; keep just cycling random cards.
+            handleRandomAction(context, ACTION_RANDOM_REFRESH);
+            return;
         }
-        refreshAndUpdate(context);
+        // If a retry was requested, only proceed when state matches pending and top matches too.
+        if (pendingRetry) {
+            CardInfo topRetry = helper.getTopCardForDeck(state.deckId);
+            if (topRetry == null || topRetry.noteID != pendingNoteId || topRetry.cardOrd != pendingOrd) {
+                android.util.Log.w("CompanionWidget", "Pending retry but top/state mismatch; refreshing and asking again.");
+                if (topRetry != null) {
+                    helper.storeState(state.deckId, topRetry);
+                    pendingNoteId = topRetry.noteID;
+                    pendingOrd = topRetry.cardOrd;
+                }
+                showToast(context, "Card updated, tap again to answer");
+                refreshAndUpdate(context);
+                return;
+            }
+        }
+        // Sync with the top of the queue to avoid "not at top of queue" errors.
+        CardInfo top = helper.getTopCardForDeck(state.deckId);
+        if (top != null && (top.noteID != state.noteID || top.cardOrd != state.cardOrd)) {
+            android.util.Log.w("CompanionWidget", "Top card mismatch, updating state. top noteId=" + top.noteID + " ord=" + top.cardOrd + " stored noteId=" + state.noteID + " ord=" + state.cardOrd);
+            helper.storeState(state.deckId, top);
+            showToast(context, "Card updated, tap again to answer");
+            pendingRetry = true;
+            pendingNoteId = top.noteID;
+            pendingOrd = top.cardOrd;
+            refreshAndUpdate(context);
+            return;
+        }
+
+        boolean ok = helper.reviewCard(state.noteID, state.cardOrd, state.cardStartTime, ease);
+        if (!ok) {
+            // On failure (card changed), show a lightweight toast and refresh widget after a short delay.
+            android.util.Log.w("CompanionWidget", "Review failed for noteId=" + state.noteID + " ord=" + state.cardOrd + ", will refresh.");
+            showToast(context, "Card changed, refreshing…");
+            pendingRetry = false;
+            CardInfo fallback = helper.queryCurrentScheduledCard(state.deckId);
+            if (fallback != null) {
+                helper.storeState(state.deckId, fallback);
+                android.util.Log.w("CompanionWidget", "Stored fallback card noteId=" + fallback.noteID + " ord=" + fallback.cardOrd);
+            } else {
+                CardInfo empty = new CardInfo();
+                empty.cardOrd = -1;
+                empty.noteID = -1;
+                helper.storeState(state.deckId, empty);
+            }
+            // Immediate refresh plus delayed refresh as a safeguard.
+            refreshAndUpdate(context);
+            handler.postDelayed(() -> refreshAndUpdate(context), 2000);
+            return;
+        }
+        // After a successful review, fetch next card. If AnkiDroid hasn't advanced yet, retry shortly.
+        pendingRetry = false;
+        CardInfo next = helper.queryCurrentScheduledCard(state.deckId);
+        if (next != null && (next.noteID != state.noteID || next.cardOrd != state.cardOrd)) {
+            android.util.Log.i("CompanionWidget", "Next card immediately available noteId=" + next.noteID + " ord=" + next.cardOrd);
+            helper.storeState(state.deckId, next);
+            refreshAndUpdate(context);
+        } else {
+            android.util.Log.i("CompanionWidget", "Next card same or null immediately; retrying after delay. current noteId=" + state.noteID + " ord=" + state.cardOrd);
+            handler.postDelayed(() -> {
+                CardInfo later = helper.queryCurrentScheduledCard(state.deckId);
+                if (later != null && (later.noteID != state.noteID || later.cardOrd != state.cardOrd)) {
+                    android.util.Log.i("CompanionWidget", "Next card after delay noteId=" + later.noteID + " ord=" + later.cardOrd);
+                    helper.storeState(state.deckId, later);
+                    refreshAndUpdate(context);
+                } else {
+                    android.util.Log.w("CompanionWidget", "Still same card after delay; asking user to tap again.");
+                    pendingRetry = true;
+                    pendingNoteId = state.noteID;
+                    pendingOrd = state.cardOrd;
+                    showToast(context, "Card unchanged, tap again");
+                    refreshAndUpdate(context);
+                }
+            }, 300);
+        }
     }
 }

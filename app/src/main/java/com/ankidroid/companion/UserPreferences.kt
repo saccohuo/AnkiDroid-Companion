@@ -17,7 +17,13 @@ object UserPreferences {
     private const val KEY_MEDIA_TREE_URI = "media_tree_uri"
     private const val KEY_WIDGET_INTERVAL_MIN = "widget_interval_min"
     private const val KEY_NOTIFICATIONS_ENABLED = "notifications_enabled"
+    private const val KEY_WIDGET_MODE = "widget_mode"
+    private const val KEY_RANDOM_CACHE_SIZE = "random_cache_size"
 
+    enum class WidgetMode {
+        QUEUE, // strict queue, allow feedback
+        RANDOM // random display, feedback buttons repurposed
+    }
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -83,6 +89,25 @@ object UserPreferences {
 
     fun getNotificationsEnabled(context: Context): Boolean {
         return prefs(context).getBoolean(KEY_NOTIFICATIONS_ENABLED, true)
+    }
+
+    fun saveWidgetMode(context: Context, mode: WidgetMode) {
+        prefs(context).edit().putString(KEY_WIDGET_MODE, mode.name).apply()
+    }
+
+    fun getWidgetMode(context: Context): WidgetMode {
+        val stored = prefs(context).getString(KEY_WIDGET_MODE, null)
+        return stored?.let { runCatching { WidgetMode.valueOf(it) }.getOrNull() } ?: WidgetMode.QUEUE
+    }
+
+    fun saveRandomCacheSize(context: Context, size: Int) {
+        val clamped = size.coerceIn(3, 20)
+        prefs(context).edit().putInt(KEY_RANDOM_CACHE_SIZE, clamped).apply()
+    }
+
+    fun getRandomCacheSize(context: Context): Int {
+        val stored = prefs(context).getInt(KEY_RANDOM_CACHE_SIZE, -1)
+        return if (stored in 3..20) stored else 5
     }
 
     fun saveMediaTreeUri(context: Context, uri: String) {

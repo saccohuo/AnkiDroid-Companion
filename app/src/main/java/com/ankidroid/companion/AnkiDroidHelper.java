@@ -194,6 +194,10 @@ public class AnkiDroidHelper {
 
     @SuppressLint("Range,DirectSystemCurrentTimeMillisUsage")
     public CardInfo queryCurrentScheduledCard(long deckID) {
+        return queryCurrentScheduledCard(deckID, UserPreferences.WidgetMode.QUEUE);
+    }
+
+    public CardInfo queryCurrentScheduledCard(long deckID, UserPreferences.WidgetMode mode) {
         // Log.d(TAG, "QueryForCurrentCard");
         String[] deckArguments = new String[deckID == -1 ? 1 : 2];
         String deckSelector = "limit=?";
@@ -293,17 +297,23 @@ public class AnkiDroidHelper {
                             specificCardCursor.close();
                         }
                     }
-                    Collections.shuffle(cards);
-                    StoredState current = getStoredState();
-                    if (current != null && cards.size() > 1) {
-                        for (int i = cards.size() - 1; i >= 0; i--) {
-                            CardInfo c = cards.get(i);
-                            if (c.noteID == current.noteID && c.cardOrd == current.cardOrd) {
-                                cards.remove(i);
+                    if (mode == UserPreferences.WidgetMode.RANDOM) {
+                        Collections.shuffle(cards);
+                    }
+                    // Only skip the already-shown card in RANDOM mode; in QUEUE mode we must keep the
+                    // exact top-of-queue card to avoid oscillating between two items when refreshing.
+                    if (mode == UserPreferences.WidgetMode.RANDOM) {
+                        StoredState current = getStoredState();
+                        if (current != null && cards.size() > 1) {
+                            for (int i = cards.size() - 1; i >= 0; i--) {
+                                CardInfo c = cards.get(i);
+                                if (c.noteID == current.noteID && c.cardOrd == current.cardOrd) {
+                                    cards.remove(i);
+                                }
                             }
-                        }
-                        if (cards.isEmpty()) {
-                            return null;
+                            if (cards.isEmpty()) {
+                                return null;
+                            }
                         }
                     }
                     return cards.get(0);
@@ -313,7 +323,12 @@ public class AnkiDroidHelper {
         return null;
     }
 
-    public void reviewCard(long noteID, int cardOrd, long cardStartTime, int ease) {
+    public CardInfo getTopCardForDeck(long deckId) {
+        CardInfo card = queryCurrentScheduledCard(deckId);
+        return card;
+    }
+
+    public boolean reviewCard(long noteID, int cardOrd, long cardStartTime, int ease) {
         long timeTaken = System.currentTimeMillis() - cardStartTime;
         ContentResolver cr = mContext.getContentResolver();
         Uri reviewInfoUri = FlashCardsContract.ReviewInfo.CONTENT_URI;
@@ -323,7 +338,13 @@ public class AnkiDroidHelper {
         values.put(FlashCardsContract.ReviewInfo.EASE, ease);
         values.put(FlashCardsContract.ReviewInfo.TIME_TAKEN, timeTaken);
         // Log.d(TAG, timeTaken + " time taken " + values.getAsLong(FlashCardsContract.ReviewInfo.TIME_TAKEN));
-        cr.update(reviewInfoUri, values, null, null);
+        try {
+            cr.update(reviewInfoUri, values, null, null);
+            return true;
+        } catch (RuntimeException e) {
+            Log.w("AnkiDroidHelper", "Failed to submit review, card may have changed", e);
+            return false;
+        }
     }
 
     private long fetchModelId(long noteId) {
