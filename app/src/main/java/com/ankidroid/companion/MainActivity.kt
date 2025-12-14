@@ -1,9 +1,12 @@
 package com.ankidroid.companion
 
+import android.app.Activity
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.view.View
@@ -15,6 +18,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.core.widget.addTextChangedListener
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -72,7 +76,10 @@ class MainActivity : ComponentActivity() {
                 explainError("AnkiDroid Read Write permission is not granted, please make sure that it is given!")
                 // requestPermissionLauncher.launch(AddContentApi.READ_WRITE_PERMISSION)
                 mAnkiDroid.requestPermission(this, 0)
+            } else if (!hasMediaPermissions()) {
+                requestMediaPermissions()
             } else {
+                // READ_MEDIA_xxx 由播放/图片时系统再提示，避免两次弹窗
                 startApp()
             }
         }
@@ -121,11 +128,37 @@ class MainActivity : ComponentActivity() {
             val grantResult = grantResults[index]
             if (permission == AddContentApi.READ_WRITE_PERMISSION) {
                 if (grantResult == PackageManager.PERMISSION_GRANTED) {
-                    startApp()
+                    if (hasMediaPermissions()) startApp() else requestMediaPermissions()
                 } else {
                     explainError("AnkiDroid Read Write permission is not granted, please make sure that it is given!")
                 }
+            } else if (permission == android.Manifest.permission.READ_MEDIA_IMAGES ||
+                permission == android.Manifest.permission.READ_MEDIA_AUDIO ||
+                permission == android.Manifest.permission.READ_EXTERNAL_STORAGE) {
+                if (hasMediaPermissions() && mAnkiDroid.isPermissionGranted) {
+                    startApp()
+                }
             }
+        }
+    }
+
+    private fun hasMediaPermissions(): Boolean {
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            checkSelfPermission(android.Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED &&
+                    checkSelfPermission(android.Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED
+        } else {
+            checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    private fun requestMediaPermissions() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            requestPermissions(arrayOf(
+                android.Manifest.permission.READ_MEDIA_IMAGES,
+                android.Manifest.permission.READ_MEDIA_AUDIO
+            ), 1)
+        } else {
+            requestPermissions(arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE), 1)
         }
     }
 
@@ -319,4 +352,5 @@ class MainActivity : ComponentActivity() {
         // Start the periodic worker when the first card is assigned.
         startPeriodicWorker()
     }
+
 }

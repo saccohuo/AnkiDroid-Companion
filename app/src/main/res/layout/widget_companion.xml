@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:minHeight="120dp"
+    android:padding="8dp"
+    android:background="@drawable/widget_bg"
+    android:id="@+id/widgetCardArea">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/widgetTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="@color/primaryText"
+            android:ellipsize="end"
+            android:maxLines="2"/>
+
+        <ImageButton
+            android:id="@+id/widgetRefresh"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:padding="2dp"
+            android:background="@android:color/transparent"
+            android:src="@android:drawable/ic_popup_sync"
+            android:contentDescription="@string/refresh"/>
+    </LinearLayout>
+
+    <!-- 内容区占据剩余空间，按钮固定在底部 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/widgetFront"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:textColor="@color/primaryText"
+            android:ellipsize="end"
+            android:maxLines="50"
+            android:paddingTop="1dp"
+            android:lineSpacingMultiplier="1.2"
+            android:lineSpacingExtra="0dp"/>
+
+        <!-- 使用 TextView 作为分隔线，避免 RemoteViews 不支持 View 类 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="2dp"
+            android:layout_marginBottom="2dp"
+            android:background="@color/primaryText"
+            android:alpha="0.2"/>
+
+        <TextView
+            android:id="@+id/widgetBack"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:textColor="@color/primaryText"
+            android:ellipsize="end"
+            android:maxLines="50"
+            android:paddingTop="1dp"
+            android:lineSpacingMultiplier="1.2"
+            android:lineSpacingExtra="0dp"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/widgetButtons"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:paddingTop="4dp">
+
+        <Button
+            android:id="@+id/widgetButtonAgain"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="11sp"
+            android:text="@string/again" />
+
+        <Button
+            android:id="@+id/widgetButtonHard"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="11sp"
+            android:text="@string/hard" />
+
+        <Button
+            android:id="@+id/widgetButtonGood"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="11sp"
+            android:text="@string/good" />
+
+        <Button
+            android:id="@+id/widgetButtonEasy"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="11sp"
+            android:text="@string/easy" />
+    </LinearLayout>
+</LinearLayout>

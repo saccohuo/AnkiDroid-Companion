@@ -20,6 +20,16 @@
         android:textColor="@color/primaryText"
         />
 
+    <ImageButton
+        android:id="@+id/playButtonCollapsed"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_marginTop="4dp"
+        android:background="@android:color/transparent"
+        android:src="@android:drawable/ic_media_play"
+        android:tint="@color/primaryText"
+        android:visibility="gone"/>
+
     <ImageView
         android:id="@+id/imageViewCollapsed"
         android:layout_width="match_parent"

@@ -6,14 +6,11 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.util.Log
 import android.view.View
 import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 import androidx.core.text.HtmlCompat
-import com.ichi2.anki.api.AddContentApi
-import java.io.File
 
 
 class Notifications {
@@ -33,10 +30,10 @@ class Notifications {
             val questionCollapsed = sanitizeText(card.rawQuestion, card.simpleQuestion, 140)
             val answerCollapsed = sanitizeText(card.rawAnswer, card.simpleAnswer, 220)
 
-            val (headerText, contentText) = when (fieldMode) {
-                FieldMode.BOTH -> Pair(questionCollapsed, answerCollapsed)
-                FieldMode.QUESTION_ONLY -> Pair(questionCollapsed, "")
-                FieldMode.ANSWER_ONLY -> Pair("", answerCollapsed)
+            val headerText = when (fieldMode) {
+                FieldMode.BOTH -> questionCollapsed
+                FieldMode.QUESTION_ONLY -> questionCollapsed
+                FieldMode.ANSWER_ONLY -> ""
             }
             val safeHeader = if (headerText.isNotBlank()) headerText else context.getString(R.string.app_name)
             val expandedContent = when (fieldMode) {
@@ -74,6 +71,8 @@ class Notifications {
 
             val image = loadCardImage(context, card)
             applyImage(collapsedView, expandedView, image)
+            collapsedView.setViewVisibility(R.id.playButtonCollapsed, View.GONE)
+            expandedView.setViewVisibility(R.id.playButtonExpanded, View.GONE)
 
             expandedView.setOnClickPendingIntent(R.id.button1, createIntent(context,"ACTION_BUTTON_1"))
             expandedView.setOnClickPendingIntent(R.id.button2, createIntent(context,"ACTION_BUTTON_2"))
@@ -140,6 +139,13 @@ class Notifications {
         return PendingIntent.getBroadcast(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
     }
 
+    private fun createIntent(context: Context, action: String, sound: String): PendingIntent {
+        val intent = Intent(context, NotificationReceiver::class.java)
+        intent.action = action
+        intent.putExtra("sound", sound)
+        return PendingIntent.getBroadcast(context, sound.hashCode(), intent, PendingIntent.FLAG_IMMUTABLE)
+    }
+
     private fun sanitizeText(raw: String?, fallback: String?, maxChars: Int): String {
         val source = when {
             !raw.isNullOrBlank() -> raw
@@ -149,7 +155,8 @@ class Notifications {
         val withoutSound = source.replace(Regex("\\[sound:[^\\]]+\\]"), "")
         val withoutImages = withoutSound.replace(Regex("(?is)<img[^>]*>"), " ")
         val withoutUrls = withoutImages.replace(Regex("https?://\\S+"), "")
-        val withoutCustomLinks = withoutUrls
+        val withoutLinks = withoutUrls.replace(Regex("(?is)<a[^>]*>.*?</a>"), " ")
+        val withoutCustomLinks = withoutLinks
             .replace(Regex("(?is)<div[^>]*class\\s*=\\s*\\\"link\\\"[^>]*>.*?</div>"), " ")
             .replace(Regex("(?is)<a[^>]*>\\s*(OAAD|Youglish)\\s*</a>"), " ")
 
@@ -168,84 +175,100 @@ class Notifications {
         return text.substring(0, max).trimEnd() + "…"
     }
 
-    private fun loadCardImage(context: Context, card: CardInfo): Bitmap? {
-        val names = card.fileNames ?: return null
-        val candidates = mutableListOf<String>()
-        for (i in 0 until names.length()) {
-            val name = names.optString(i)
-            if (isImageFile(name)) {
-                candidates.add(name)
-            }
-        }
-        // Also parse html for img src filenames.
-        candidates.addAll(extractImageSources(card.rawQuestion))
-        candidates.addAll(extractImageSources(card.rawAnswer))
-
-        for (name in candidates) {
-            resolveMediaFile(context, name)?.let { file ->
-                loadBitmap(file)?.let { return it }
-            }
-        }
-        return null
-    }
-
-    private fun isImageFile(name: String?): Boolean {
-        if (name.isNullOrBlank()) return false
-        val lower = name.lowercase()
-        return lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".webp")
-    }
-
-    private fun resolveMediaFile(context: Context, name: String): File? {
-        // Try AddContentApi.getMediaFile via reflection for compatibility.
-        try {
-            val api = AddContentApi(context)
-            val method = AddContentApi::class.java.getMethod("getMediaFile", String::class.java)
-            val file = method.invoke(api, name)
-            if (file is File && file.exists()) {
-                return file
-            }
-        } catch (e: Exception) {
-            Log.w("Notifications", "Media resolver via API failed: ${e.message}")
-        }
-
-        // Fallback: common AnkiDroid media folder
-        return try {
-            val mediaDir = File(android.os.Environment.getExternalStorageDirectory(),
-                "Android/data/com.ichi2.anki/files/AnkiDroid/collection.media")
-            val candidate = File(mediaDir, name)
-            if (candidate.exists()) candidate else null
-        } catch (e: Exception) {
-            Log.w("Notifications", "Media resolver via path failed: ${e.message}")
-            null
-        }
-    }
-
-    private fun extractImageSources(html: String?): List<String> {
-        if (html.isNullOrBlank()) return emptyList()
-        val regex = Regex("(?is)<img[^>]*src\\s*=\\s*\\\"([^\\\"]+)\\\"")
-        return regex.findAll(html).mapNotNull { match ->
-            match.groupValues.getOrNull(1)?.substringAfterLast('/')
-        }.filter { isImageFile(it) }.toList()
-    }
-
-    private fun loadBitmap(file: File): Bitmap? {
-        return try {
-            BitmapFactory.decodeFile(file.absolutePath)
-        } catch (e: Exception) {
-            Log.w("Notifications", "Bitmap decode failed: ${e.message}")
-            null
-        }
-    }
+    private fun loadCardImage(context: Context, card: CardInfo): Bitmap? = null
 
     private fun applyImage(collapsedView: RemoteViews, expandedView: RemoteViews, bitmap: Bitmap?) {
-        if (bitmap != null) {
-            collapsedView.setViewVisibility(R.id.imageViewCollapsed, View.VISIBLE)
-            collapsedView.setImageViewBitmap(R.id.imageViewCollapsed, bitmap)
-            expandedView.setViewVisibility(R.id.imageViewExpanded, View.VISIBLE)
-            expandedView.setImageViewBitmap(R.id.imageViewExpanded, bitmap)
+        collapsedView.setViewVisibility(R.id.imageViewCollapsed, View.GONE)
+        expandedView.setViewVisibility(R.id.imageViewExpanded, View.GONE)
+    }
+}
+
+// Helper for widget text sanitization，保留基础样式（粗体/斜体/上下标），列表/引用转换，并移除链接。
+fun sanitizeForWidget(raw: String?, fallback: String?): CharSequence {
+    val source = when {
+        !raw.isNullOrBlank() -> raw
+        !fallback.isNullOrBlank() -> fallback
+        else -> ""
+    }
+    val NL = "§§NL§§"
+    val withAudioIcon = source
+        .replace(Regex("\\[sound:[^\\]]+\\]"), "\uD83D\uDD0A ")
+        .replace(Regex("(?is)<audio[^>]*src\\s*=\\s*\\\"([^\\\"]+)\\\"[^>]*>(?:.*?)</audio>"), "\uD83D\uDD0A ")
+        .replace(Regex("(?is)<audio[^>]*>"), "\uD83D\uDD0A ")
+    val clozeHandled = withAudioIcon.replace(Regex("\\{\\{c(\\d+)::(.*?)(::(.*?))?\\}\\}", RegexOption.IGNORE_CASE)) {
+        val idx = it.groupValues.getOrNull(1) ?: ""
+        val text = it.groupValues.getOrNull(2) ?: ""
+        "[C$idx] $text"
+    }
+    val listsHandled = clozeHandled
+        .replace(Regex("(?is)<ol[^>]*>|<ul[^>]*>"), "\n")
+        .replace(Regex("(?is)</ol>|</ul>"), "\n")
+        .replace(Regex("(?is)<li[^>]*>"), "\n• ")
+        .replace(Regex("(?is)</li>"), "")
+    val withQuotes = listsHandled
+        // 引用块用特殊前缀区分，结尾增加一个空行保持视觉间距
+        .replace(Regex("(?is)<blockquote[^>]*>"), "\n❯ ")
+        .replace(Regex("(?is)</blockquote>"), "\n\n")
+
+    val styledBlocks = withQuotes
+        // 针对常见样式块添加前缀，模拟左边框/高亮
+        .replace(Regex("(?is)<div[^>]*class\\s*=\\s*\\\"zh\\\"[^>]*>"), "\n• ")
+        .replace(Regex("(?is)<div[^>]*class\\s*=\\s*\\\"def\\\"[^>]*>"), "\n❯ ")
+        .replace(Regex("(?is)<div[^>]*class\\s*=\\s*\\\"sentence\\\"[^>]*>"), "\n➤ ")
+        .replace(Regex("(?is)<div[^>]*class\\s*=\\s*\\\"tr\\\"[^>]*>"), "\n→ ")
+        .replace(Regex("(?is)<div[^>]*class\\s*=\\s*\\\"ex\\\"[^>]*>"), "\n▪ ")
+        .replace(Regex("(?is)<div[^>]*class\\s*=\\s*\\\"ex-tr\\\"[^>]*>"), "${NL}→ ")
+        .replace(Regex("(?is)<div[^>]*class\\s*=\\s*\\\"notes\\\"[^>]*>"), "\n✎ ")
+
+    val blockCollapsed = styledBlocks
+        .replace(Regex("(?is)<p[^>]*>"), NL)
+        .replace(Regex("(?is)</p>"), NL)
+        .replace(Regex("(?is)<div[^>]*>"), NL)
+        .replace(Regex("(?is)</div>"), NL)
+        .replace(Regex("(?is)<br\\s*/?>"), NL)
+        .replace(Regex("(?is)<hr[^>]*>"), NL)
+        .replace(Regex("(§§NL§§\\s*){2,}"), NL)
+
+    val cleanedHtml = blockCollapsed
+        .replace(Regex("(?is)<img[^>]*>"), " ")
+        .replace(Regex("(?is)<a[^>]*>\\s*(.*?)\\s*</a>"), " ")
+        .replace(Regex("https?://\\S+"), " ")
+        .replace(Regex("\\r"), "\n")
+        .replace(Regex("\\n{3,}"), "\n\n")
+        .replace(Regex("(<br\\s*/?>\\s*){2,}"), "<br/>")
+        .trim()
+
+    val plain = HtmlCompat.fromHtml(cleanedHtml, HtmlCompat.FROM_HTML_MODE_LEGACY).toString()
+    val withMarkers = plain.replace(NL, "\n")
+    val normalized = withMarkers
+        .replace("\r", "\n")
+        .replace(Regex("[ \\t\\f]+"), " ")
+        .replace(Regex("\\n{3,}"), "\n\n")
+        .replace(Regex(" +\\n"), "\n")
+        .replace(Regex("\\n +"), "\n")
+        .trim()
+    if (normalized.isBlank()) return ""
+
+    // 压缩多余的空行，去掉因移除图片/链接而残留的空白行
+    val builder = StringBuilder()
+    var lastBlank = false
+    normalized.lines().forEach { line ->
+        val trimmed = line.trim()
+        val isBlank = trimmed.isEmpty()
+        if (isBlank) {
+            if (!lastBlank && builder.isNotEmpty()) {
+                builder.append("\n")
+            }
+            lastBlank = true
         } else {
-            collapsedView.setViewVisibility(R.id.imageViewCollapsed, View.GONE)
-            expandedView.setViewVisibility(R.id.imageViewExpanded, View.GONE)
+            if (builder.isNotEmpty()) builder.append("\n")
+            builder.append(trimmed)
+            lastBlank = false
         }
     }
+    val compacted = builder.toString().trim()
+    // 前缀兜底换行：如未换行则插入一行，避免段落黏连
+    val prefixPattern = Regex("(?m)([^\\n])\\s*(❯|➤|→|▪|✎|•)\\s")
+    val ensured = compacted.replace(prefixPattern, "$1\n$2 ")
+    return ensured.trim()
 }

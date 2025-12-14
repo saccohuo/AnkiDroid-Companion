@@ -14,6 +14,7 @@ object UserPreferences {
     private const val KEY_FIELD_MODE = "field_mode"
     private const val KEY_TEMPLATE_FILTER = "template_filter"
     private const val KEY_MAX_LINES = "content_max_lines"
+    private const val KEY_MEDIA_TREE_URI = "media_tree_uri"
 
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -62,5 +63,13 @@ object UserPreferences {
     fun getContentMaxLines(context: Context): Int {
         val stored = prefs(context).getInt(KEY_MAX_LINES, -1)
         return if (stored in 1..50) stored else 4
+    }
+
+    fun saveMediaTreeUri(context: Context, uri: String) {
+        prefs(context).edit().putString(KEY_MEDIA_TREE_URI, uri).apply()
+    }
+
+    fun getMediaTreeUri(context: Context): String? {
+        return prefs(context).getString(KEY_MEDIA_TREE_URI, null)
     }
 }

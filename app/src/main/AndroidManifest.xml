@@ -3,6 +3,11 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+    <uses-permission android:name="com.ichi2.anki.permission.READ_WRITE_DATABASE" />
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -24,6 +29,16 @@
             </intent-filter>
         </activity>
         <receiver android:name=".NotificationReceiver"/>
+        <receiver android:name=".CompanionWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.ankidroid.companion.widget.REFRESH" />
+                <action android:name="com.ankidroid.companion.widget.OPEN_APP" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider"
+                android:resource="@xml/companion_widget_info" />
+        </receiver>
     </application>
     <queries>
         <package android:name="com.ichi2.anki" />

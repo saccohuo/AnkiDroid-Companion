@@ -197,7 +197,7 @@ public class AnkiDroidHelper {
         // Log.d(TAG, "QueryForCurrentCard");
         String[] deckArguments = new String[deckID == -1 ? 1 : 2];
         String deckSelector = "limit=?";
-        deckArguments[0] = "" + 1;
+        deckArguments[0] = "" + 20;
         if (deckID != -1) {
             deckSelector += ",deckID=?";
             deckArguments[1] = "" + deckID;
@@ -294,6 +294,18 @@ public class AnkiDroidHelper {
                         }
                     }
                     Collections.shuffle(cards);
+                    StoredState current = getStoredState();
+                    if (current != null && cards.size() > 1) {
+                        for (int i = cards.size() - 1; i >= 0; i--) {
+                            CardInfo c = cards.get(i);
+                            if (c.noteID == current.noteID && c.cardOrd == current.cardOrd) {
+                                cards.remove(i);
+                            }
+                        }
+                        if (cards.isEmpty()) {
+                            return null;
+                        }
+                    }
                     return cards.get(0);
                 }
             }
