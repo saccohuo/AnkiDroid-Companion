@@ -14,7 +14,8 @@ public class TemplateOption {
     }
 
     public String displayName() {
-        String namePart = templateName != null && !templateName.isEmpty() ? templateName : ("模板 " + (ord + 1));
+        // API does not expose per-template names, so default to an English ordinal.
+        String namePart = templateName != null && !templateName.isEmpty() ? templateName : ("Template " + (ord + 1));
         if (modelName != null && !modelName.isEmpty()) {
             return modelName + " • " + namePart;
         }

@@ -103,8 +103,14 @@ class MainActivity : ComponentActivity() {
         setWidgetIntervalInput()
         setAnswerLinesInput()
         scheduleWidgetRefresh()
-        // Show current app version from BuildConfig
-        findViewById<TextView>(R.id.versionLabel)?.text = getString(R.string.version_label, BuildConfig.VERSION_NAME)
+        // Show current app version from package info
+        val versionName = try {
+            val pkgInfo = packageManager.getPackageInfo(packageName, 0)
+            pkgInfo.versionName ?: ""
+        } catch (_: Exception) {
+            ""
+        }
+        findViewById<TextView>(R.id.versionLabel)?.text = getString(R.string.version_label, versionName)
 
         val button = findViewById<Button>(R.id.mainRefreshButton)
         button.visibility = View.VISIBLE
