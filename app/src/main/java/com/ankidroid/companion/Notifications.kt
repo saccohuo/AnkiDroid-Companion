@@ -5,9 +5,15 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.util.Log
+import android.view.View
 import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
+import androidx.core.text.HtmlCompat
+import com.ichi2.anki.api.AddContentApi
+import java.io.File
 
 
 class Notifications {
@@ -22,12 +28,51 @@ class Notifications {
 
         // There is a card to show, show a notification with the expanded view.
         if (card != null) {
-            collapsedView.setTextViewText(R.id.textViewCollapsedHeader, card.q)
-            collapsedView.setTextViewText(R.id.textViewCollapsedTitle, "Anki • $deckName")
+            val fieldMode = UserPreferences.getFieldMode(context)
+            val questionCollapsed = sanitizeText(card.rawQuestion, card.simpleQuestion, 140)
+            val answerCollapsed = sanitizeText(card.rawAnswer, card.simpleAnswer, 220)
+
+            val (headerText, contentText) = when (fieldMode) {
+                FieldMode.BOTH -> Pair(questionCollapsed, answerCollapsed)
+                FieldMode.QUESTION_ONLY -> Pair(questionCollapsed, "")
+                FieldMode.ANSWER_ONLY -> Pair("", answerCollapsed)
+            }
+            val safeHeader = if (headerText.isNotBlank()) headerText else context.getString(R.string.app_name)
+            val expandedContent = when (fieldMode) {
+                FieldMode.BOTH -> sanitizeText(card.rawAnswer, card.simpleAnswer, 400)
+                FieldMode.QUESTION_ONLY -> ""
+                FieldMode.ANSWER_ONLY -> sanitizeText(card.rawAnswer, card.simpleAnswer, 1200)
+            }
+
+            val displayTitle = if (deckName.isNotBlank()) "Anki • $deckName" else "Anki"
+
+            val collapsedHeader = when (fieldMode) {
+                FieldMode.ANSWER_ONLY -> if (answerCollapsed.isNotBlank()) answerCollapsed else ""
+                else -> safeHeader
+            }
+
+            collapsedView.setTextViewText(R.id.textViewCollapsedHeader, collapsedHeader)
+            collapsedView.setTextViewText(R.id.textViewCollapsedTitle, if (fieldMode == FieldMode.ANSWER_ONLY) "" else displayTitle)
+            collapsedView.setViewVisibility(R.id.textViewCollapsedTitle, if (fieldMode == FieldMode.ANSWER_ONLY) View.GONE else View.VISIBLE)
 
             val expandedView = RemoteViews(context.packageName, R.layout.notification_expanded_full)
-            expandedView.setTextViewText(R.id.textViewExpandedHeader, card.q)
-            expandedView.setTextViewText(R.id.textViewContent, card.a)
+            val expandedHeader = when (fieldMode) {
+                FieldMode.ANSWER_ONLY -> ""
+                else -> safeHeader
+            }
+            expandedView.setTextViewText(R.id.textViewExpandedHeader, expandedHeader)
+            expandedView.setViewVisibility(R.id.textViewExpandedHeader, if (fieldMode == FieldMode.ANSWER_ONLY) View.GONE else View.VISIBLE)
+            expandedView.setTextViewText(R.id.textViewContent, expandedContent)
+            val maxLines = UserPreferences.getContentMaxLines(context)
+            expandedView.setInt(R.id.textViewContent, "setMaxLines", maxLines)
+            if (expandedContent.isBlank()) {
+                expandedView.setViewVisibility(R.id.textViewContent, View.GONE)
+            } else {
+                expandedView.setViewVisibility(R.id.textViewContent, View.VISIBLE)
+            }
+
+            val image = loadCardImage(context, card)
+            applyImage(collapsedView, expandedView, image)
 
             expandedView.setOnClickPendingIntent(R.id.button1, createIntent(context,"ACTION_BUTTON_1"))
             expandedView.setOnClickPendingIntent(R.id.button2, createIntent(context,"ACTION_BUTTON_2"))
@@ -75,5 +120,114 @@ class Notifications {
         val intent = Intent(context, NotificationReceiver::class.java)
         intent.action = action
         return PendingIntent.getBroadcast(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+    }
+
+    private fun sanitizeText(raw: String?, fallback: String?, maxChars: Int): String {
+        val source = when {
+            !raw.isNullOrBlank() -> raw
+            !fallback.isNullOrBlank() -> fallback
+            else -> ""
+        }
+        val withoutSound = source.replace(Regex("\\[sound:[^\\]]+\\]"), "")
+        val withoutImages = withoutSound.replace(Regex("(?is)<img[^>]*>"), " ")
+        val withoutUrls = withoutImages.replace(Regex("https?://\\S+"), "")
+        val withoutCustomLinks = withoutUrls
+            .replace(Regex("(?is)<div[^>]*class\\s*=\\s*\\\"link\\\"[^>]*>.*?</div>"), " ")
+            .replace(Regex("(?is)<a[^>]*>\\s*(OAAD|Youglish)\\s*</a>"), " ")
+
+        val plain = HtmlCompat.fromHtml(withoutCustomLinks, HtmlCompat.FROM_HTML_MODE_LEGACY)
+            .toString()
+        val normalized = plain
+            .replace("\r", "\n")
+            .replace(Regex("[ \\t\\f]+"), " ")
+            .replace(Regex("\\n{2,}"), "\n")
+            .trim()
+        return ellipsize(normalized, maxChars)
+    }
+
+    private fun ellipsize(text: String, max: Int): String {
+        if (text.length <= max) return text
+        return text.substring(0, max).trimEnd() + "…"
+    }
+
+    private fun loadCardImage(context: Context, card: CardInfo): Bitmap? {
+        val names = card.fileNames ?: return null
+        val candidates = mutableListOf<String>()
+        for (i in 0 until names.length()) {
+            val name = names.optString(i)
+            if (isImageFile(name)) {
+                candidates.add(name)
+            }
+        }
+        // Also parse html for img src filenames.
+        candidates.addAll(extractImageSources(card.rawQuestion))
+        candidates.addAll(extractImageSources(card.rawAnswer))
+
+        for (name in candidates) {
+            resolveMediaFile(context, name)?.let { file ->
+                loadBitmap(file)?.let { return it }
+            }
+        }
+        return null
+    }
+
+    private fun isImageFile(name: String?): Boolean {
+        if (name.isNullOrBlank()) return false
+        val lower = name.lowercase()
+        return lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".webp")
+    }
+
+    private fun resolveMediaFile(context: Context, name: String): File? {
+        // Try AddContentApi.getMediaFile via reflection for compatibility.
+        try {
+            val api = AddContentApi(context)
+            val method = AddContentApi::class.java.getMethod("getMediaFile", String::class.java)
+            val file = method.invoke(api, name)
+            if (file is File && file.exists()) {
+                return file
+            }
+        } catch (e: Exception) {
+            Log.w("Notifications", "Media resolver via API failed: ${e.message}")
+        }
+
+        // Fallback: common AnkiDroid media folder
+        return try {
+            val mediaDir = File(android.os.Environment.getExternalStorageDirectory(),
+                "Android/data/com.ichi2.anki/files/AnkiDroid/collection.media")
+            val candidate = File(mediaDir, name)
+            if (candidate.exists()) candidate else null
+        } catch (e: Exception) {
+            Log.w("Notifications", "Media resolver via path failed: ${e.message}")
+            null
+        }
+    }
+
+    private fun extractImageSources(html: String?): List<String> {
+        if (html.isNullOrBlank()) return emptyList()
+        val regex = Regex("(?is)<img[^>]*src\\s*=\\s*\\\"([^\\\"]+)\\\"")
+        return regex.findAll(html).mapNotNull { match ->
+            match.groupValues.getOrNull(1)?.substringAfterLast('/')
+        }.filter { isImageFile(it) }.toList()
+    }
+
+    private fun loadBitmap(file: File): Bitmap? {
+        return try {
+            BitmapFactory.decodeFile(file.absolutePath)
+        } catch (e: Exception) {
+            Log.w("Notifications", "Bitmap decode failed: ${e.message}")
+            null
+        }
+    }
+
+    private fun applyImage(collapsedView: RemoteViews, expandedView: RemoteViews, bitmap: Bitmap?) {
+        if (bitmap != null) {
+            collapsedView.setViewVisibility(R.id.imageViewCollapsed, View.VISIBLE)
+            collapsedView.setImageViewBitmap(R.id.imageViewCollapsed, bitmap)
+            expandedView.setViewVisibility(R.id.imageViewExpanded, View.VISIBLE)
+            expandedView.setImageViewBitmap(R.id.imageViewExpanded, bitmap)
+        } else {
+            collapsedView.setViewVisibility(R.id.imageViewCollapsed, View.GONE)
+            expandedView.setViewVisibility(R.id.imageViewExpanded, View.GONE)
+        }
     }
 }

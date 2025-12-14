@@ -23,6 +23,10 @@ import static com.ichi2.anki.api.AddContentApi.READ_WRITE_PERMISSION;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Collections;
+import java.util.Set;
+import java.util.HashSet;
+import java.util.List;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -34,7 +38,9 @@ public class AnkiDroidHelper {
     public static final int EASE_3 = 3;
     public static final int EASE_4 = 4;
 
-    public static final String[] SIMPLE_CARD_PROJECTION = {
+    public static final String[] CARD_PROJECTION = {
+            FlashCardsContract.Card.ANSWER,
+            FlashCardsContract.Card.QUESTION,
             FlashCardsContract.Card.ANSWER_PURE,
             FlashCardsContract.Card.QUESTION_SIMPLE};
     private static final String DECK_REF_DB = "com.ichi2.anki.api.decks";
@@ -240,12 +246,32 @@ public class AnkiDroidHelper {
                 reviewInfoCursor.close();
 
                 if (cards.size() >= 1) {
+                    // Apply template filter if user specified.
+                    ArrayList<CardInfo> filtered = new ArrayList<>();
+                    final Set<TemplateKey> allowedTemplates = UserPreferences.INSTANCE.getTemplateFilter(mContext);
+                    for (CardInfo card : cards) {
+                        // fetch modelId for filter & enrichment
+                        long modelId = fetchModelId(card.noteID);
+                        card.modelId = modelId;
+
+                        if (allowedTemplates.isEmpty() || templateMatches(allowedTemplates, new TemplateKey(card.modelId, card.cardOrd))) {
+                            filtered.add(card);
+                        }
+                    }
+
+                    if (filtered.size() == 0) {
+                        // No card matches filter.
+                        return null;
+                    }
+
+                    cards = filtered;
+
                     for (CardInfo card : cards) {
                         Uri noteUri = Uri.withAppendedPath(FlashCardsContract.Note.CONTENT_URI, Long.toString(card.noteID));
                         Uri cardsUri = Uri.withAppendedPath(noteUri, "cards");
                         Uri specificCardUri = Uri.withAppendedPath(cardsUri, Integer.toString(card.cardOrd));
                         final Cursor specificCardCursor = mContext.getContentResolver().query(specificCardUri,
-                                SIMPLE_CARD_PROJECTION,  // projection
+                                CARD_PROJECTION,  // projection
                                 null,  // selection is ignored for this URI
                                 null,  // selectionArgs is ignored for this URI
                                 null   // sortOrder is ignored for this URI
@@ -258,11 +284,16 @@ public class AnkiDroidHelper {
                             }
                             return null;
                         } else {
-                            card.a = specificCardCursor.getString(specificCardCursor.getColumnIndex(FlashCardsContract.Card.ANSWER_PURE));
-                            card.q = specificCardCursor.getString(specificCardCursor.getColumnIndex(FlashCardsContract.Card.QUESTION_SIMPLE));
+                            card.rawAnswer = specificCardCursor.getString(specificCardCursor.getColumnIndex(FlashCardsContract.Card.ANSWER));
+                            card.rawQuestion = specificCardCursor.getString(specificCardCursor.getColumnIndex(FlashCardsContract.Card.QUESTION));
+                            card.simpleAnswer = specificCardCursor.getString(specificCardCursor.getColumnIndex(FlashCardsContract.Card.ANSWER_PURE));
+                            card.simpleQuestion = specificCardCursor.getString(specificCardCursor.getColumnIndex(FlashCardsContract.Card.QUESTION_SIMPLE));
+                            card.a = card.rawAnswer != null && !card.rawAnswer.isEmpty() ? card.rawAnswer : card.simpleAnswer;
+                            card.q = card.rawQuestion != null && !card.rawQuestion.isEmpty() ? card.rawQuestion : card.simpleQuestion;
                             specificCardCursor.close();
                         }
                     }
+                    Collections.shuffle(cards);
                     return cards.get(0);
                 }
             }
@@ -282,5 +313,131 @@ public class AnkiDroidHelper {
         // Log.d(TAG, timeTaken + " time taken " + values.getAsLong(FlashCardsContract.ReviewInfo.TIME_TAKEN));
         cr.update(reviewInfoUri, values, null, null);
     }
-}
 
+    private long fetchModelId(long noteId) {
+        Uri noteUri = Uri.withAppendedPath(FlashCardsContract.Note.CONTENT_URI, Long.toString(noteId));
+        Cursor cursor = mContext.getContentResolver().query(
+                noteUri,
+                new String[]{FlashCardsContract.Note.MID},
+                null,
+                null,
+                null
+        );
+        if (cursor == null) {
+            return -1;
+        }
+        try {
+            if (cursor.moveToFirst()) {
+                return cursor.getLong(cursor.getColumnIndex(FlashCardsContract.Note.MID));
+            }
+        } finally {
+            cursor.close();
+        }
+        return -1;
+    }
+
+    private boolean templateMatches(Set<TemplateKey> allowed, TemplateKey candidate) {
+        for (TemplateKey key : allowed) {
+            if (key.modelId >= 0) {
+                if (key.modelId == candidate.modelId && key.ord == candidate.ord) {
+                    return true;
+                }
+            } else {
+                // backward compatibility: match on ord only
+                if (key.ord == candidate.ord) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    public List<TemplateOption> getTemplateOptionsForDeck(long deckId) {
+        List<TemplateOption> result = new ArrayList<>();
+        if (deckId == -1L || !isPermissionGranted()) {
+            return result;
+        }
+
+        // 1) 首先从当前牌组的复习队列中获取 note/model 信息，保证只包含该牌组的实际卡片。
+        Set<TemplateKey> templateKeys = new HashSet<>();
+        Set<Long> modelIds = new HashSet<>();
+        String selection = "deckID=?";
+        String[] args = new String[]{String.valueOf(deckId)};
+        Cursor reviewCursor = mContext.getContentResolver().query(
+                FlashCardsContract.ReviewInfo.CONTENT_URI,
+                new String[]{FlashCardsContract.ReviewInfo.NOTE_ID, FlashCardsContract.ReviewInfo.CARD_ORD},
+                selection,
+                args,
+                null
+        );
+        if (reviewCursor != null) {
+            try {
+                if (reviewCursor.moveToFirst()) {
+                    do {
+                        long noteId = reviewCursor.getLong(reviewCursor.getColumnIndex(FlashCardsContract.ReviewInfo.NOTE_ID));
+                        int ord = reviewCursor.getInt(reviewCursor.getColumnIndex(FlashCardsContract.ReviewInfo.CARD_ORD));
+                        long modelId = fetchModelId(noteId);
+                        if (modelId != -1) {
+                            templateKeys.add(new TemplateKey(modelId, ord));
+                            modelIds.add(modelId);
+                        }
+                    } while (reviewCursor.moveToNext());
+                }
+            } finally {
+                reviewCursor.close();
+            }
+        }
+
+        // 2) 若复习队列为空，再退回 Note 查询该牌组的模型集合。
+        if (modelIds.isEmpty()) {
+            Uri noteUri = FlashCardsContract.Note.CONTENT_URI.buildUpon()
+                    .appendQueryParameter(FlashCardsContract.Note.DECK_ID_QUERY_PARAM, String.valueOf(deckId))
+                    .build();
+            Cursor noteCursor = mContext.getContentResolver().query(
+                    noteUri,
+                    new String[]{FlashCardsContract.Note.MID},
+                    null,
+                    null,
+                    null
+            );
+            if (noteCursor != null) {
+                try {
+                    if (noteCursor.moveToFirst()) {
+                        do {
+                            modelIds.add(noteCursor.getLong(noteCursor.getColumnIndex(FlashCardsContract.Note.MID)));
+                        } while (noteCursor.moveToNext());
+                    }
+                } finally {
+                    noteCursor.close();
+                }
+            }
+        }
+
+        // 3) 根据模型数生成完整模板列表（模型名 + 模板序号）。
+        for (Long modelId : modelIds) {
+            Uri modelUri = Uri.withAppendedPath(FlashCardsContract.Model.CONTENT_URI, Long.toString(modelId));
+            Cursor modelCursor = mContext.getContentResolver().query(
+                    modelUri,
+                    new String[]{FlashCardsContract.Model.NAME, FlashCardsContract.Model.NUM_CARDS},
+                    null,
+                    null,
+                    null
+            );
+            if (modelCursor != null) {
+                try {
+                    if (modelCursor.moveToFirst()) {
+                        String modelName = modelCursor.getString(modelCursor.getColumnIndex(FlashCardsContract.Model.NAME));
+                        int numCards = modelCursor.getInt(modelCursor.getColumnIndex(FlashCardsContract.Model.NUM_CARDS));
+                        for (int ord = 0; ord < numCards; ord++) {
+                            result.add(new TemplateOption(modelId, ord, null, modelName));
+                        }
+                    }
+                } finally {
+                    modelCursor.close();
+                }
+            }
+        }
+
+        return result;
+    }
+}

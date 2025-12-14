@@ -6,7 +6,10 @@ import java.util.ArrayList;
 
 public class CardInfo {
     String q = "", a = "";
+    String rawQuestion = "", rawAnswer = "";
+    String simpleQuestion = "", simpleAnswer = "";
     int cardOrd;
+    long modelId = -1;
     long noteID;
     int buttonCount;
     JSONArray nextReviewTexts = null;
@@ -24,4 +27,3 @@ public class CardInfo {
         soundUris.add(uri);
     }
 }
-

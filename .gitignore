@@ -12,6 +12,7 @@
 
 # Gradle files
 .gradle/
+.gradle-tmp/
 build/
 
 # Local configuration file (sdk path, etc)
@@ -44,3 +45,7 @@ google-services.json
 
 # Android Profiling
 *.hprof
+
+# Local tooling / caches
+.android/
+LOG.md

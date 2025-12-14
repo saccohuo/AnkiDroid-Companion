@@ -24,10 +24,13 @@ class NotificationReceiver : BroadcastReceiver() {
         var mAnkiDroid = AnkiDroidHelper(context)
         val localState = mAnkiDroid.storedState
 
-        if (localState != null) {
-            Log.i("Notifications", "localState.cardOrd: ${localState.cardOrd}, localState.noteID: ${localState.noteID}")
-            mAnkiDroid.reviewCard(localState.noteID, localState.cardOrd, localState.cardStartTime, ease)
+        if (localState == null) {
+            Log.w("Notifications", "No stored state found when responding to card.")
+            return
         }
+
+        Log.i("Notifications", "localState.cardOrd: ${localState.cardOrd}, localState.noteID: ${localState.noteID}")
+        mAnkiDroid.reviewCard(localState.noteID, localState.cardOrd, localState.cardStartTime, ease)
 
         // Move to next card
         val nextCard = mAnkiDroid.queryCurrentScheduledCard(localState.deckId)

@@ -19,4 +19,11 @@
         android:text="Header"
         android:textColor="@color/primaryText"
         />
+
+    <ImageView
+        android:id="@+id/imageViewCollapsed"
+        android:layout_width="match_parent"
+        android:layout_height="120dp"
+        android:scaleType="centerCrop"
+        android:visibility="gone"/>
 </LinearLayout>
