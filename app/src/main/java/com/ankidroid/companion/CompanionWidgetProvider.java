@@ -6,6 +6,7 @@ import android.appwidget.AppWidgetProvider;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.os.Bundle;
 import android.widget.RemoteViews;
 
 public class CompanionWidgetProvider extends AppWidgetProvider {
@@ -78,6 +79,36 @@ public class CompanionWidgetProvider extends AppWidgetProvider {
         StoredState state = helper.getStoredState();
         String deckName = state != null ? helper.getApi().getDeckName(state.deckId) : "";
         FieldMode mode = UserPreferences.INSTANCE.getFieldMode(context);
+
+        // 根据最小宽度决定按钮文字是否使用缩写，避免在窄列上撑高按钮
+        boolean useShortLabels = false;
+        try {
+            Bundle opts = manager.getAppWidgetOptions(appWidgetId);
+            int minWidth = opts != null ? opts.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0) : 0;
+            // 仅在极窄列时使用缩写，避免宽列被误判
+            useShortLabels = minWidth > 0 && minWidth < 120; // 120dp 以下视为窄列
+        } catch (Exception ignored) {
+        }
+        if (useShortLabels) {
+            views.setTextViewText(R.id.widgetButtonAgain, "Aga");
+            views.setTextViewText(R.id.widgetButtonHard, "Har");
+            views.setTextViewText(R.id.widgetButtonGood, "Goo");
+            views.setTextViewText(R.id.widgetButtonEasy, "Eas");
+        } else {
+            views.setTextViewText(R.id.widgetButtonAgain, context.getString(R.string.again));
+            views.setTextViewText(R.id.widgetButtonHard, context.getString(R.string.hard));
+            views.setTextViewText(R.id.widgetButtonGood, context.getString(R.string.good));
+            views.setTextViewText(R.id.widgetButtonEasy, context.getString(R.string.easy));
+        }
+        // 窄列下强制单行显示，避免按钮被拉高或垂直堆叠
+        views.setInt(R.id.widgetButtonAgain, "setMaxLines", 1);
+        views.setInt(R.id.widgetButtonHard, "setMaxLines", 1);
+        views.setInt(R.id.widgetButtonGood, "setMaxLines", 1);
+        views.setInt(R.id.widgetButtonEasy, "setMaxLines", 1);
+        views.setBoolean(R.id.widgetButtonAgain, "setSingleLine", true);
+        views.setBoolean(R.id.widgetButtonHard, "setSingleLine", true);
+        views.setBoolean(R.id.widgetButtonGood, "setSingleLine", true);
+        views.setBoolean(R.id.widgetButtonEasy, "setSingleLine", true);
 
         if (card == null && state != null && state.cardOrd != -1) {
             card = helper.queryCurrentScheduledCard(state.deckId);
