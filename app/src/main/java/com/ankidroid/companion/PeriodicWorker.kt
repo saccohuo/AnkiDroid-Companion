@@ -11,6 +11,9 @@ class PeriodicWorker(context: Context, params: WorkerParameters) : Worker(contex
     private val mainThreadHandler = Handler(Looper.getMainLooper())
 
     override fun doWork(): Result {
+        if (!UserPreferences.getNotificationsEnabled(applicationContext)) {
+            return Result.success()
+        }
         Log.i("BackgroundService", "Periodic worker RAN - QQ")
         mainThreadHandler.post {
             // Update UI or perform any operation on the main thread

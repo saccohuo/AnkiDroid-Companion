@@ -19,6 +19,7 @@ import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import android.widget.Switch
 import androidx.activity.ComponentActivity
 import androidx.core.widget.addTextChangedListener
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -53,6 +54,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startPeriodicWorker() {
+        if (!UserPreferences.getNotificationsEnabled(this)) {
+            WorkManager.getInstance(this).cancelUniqueWork("WORKER_ANKI")
+            return
+        }
         Log.i("BackgroundService", "startBackgroundService called from MainActivity")
         val periodicWorkRequest = PeriodicWorkRequest.Builder(
             PeriodicWorker::class.java,
@@ -93,7 +98,10 @@ class MainActivity : ComponentActivity() {
         setDecksSpinner()
         setFieldModeSpinner()
         setTemplateFilterCheckboxes()
+        setNotificationsToggle()
+        setWidgetIntervalInput()
         setAnswerLinesInput()
+        scheduleWidgetRefresh()
 
         val button = findViewById<Button>(R.id.mainRefreshButton)
         button.visibility = View.VISIBLE
@@ -111,6 +119,14 @@ class MainActivity : ComponentActivity() {
         findViewById<Spinner>(R.id.fieldModeSpinner).visibility = View.GONE
         findViewById<TextView>(R.id.templateFilterLabel).visibility = View.GONE
         findViewById<View>(R.id.templateCheckboxContainer).visibility = View.GONE
+        findViewById<TextView>(R.id.sharedSectionLabel).visibility = View.GONE
+        findViewById<TextView>(R.id.notificationSectionLabel).visibility = View.GONE
+        findViewById<TextView>(R.id.widgetSectionLabel).visibility = View.GONE
+        findViewById<TextView>(R.id.notificationsLabel).visibility = View.GONE
+        findViewById<Switch>(R.id.notificationsToggle).visibility = View.GONE
+        findViewById<TextView>(R.id.notificationsHint).visibility = View.GONE
+        findViewById<TextView>(R.id.widgetIntervalLabel).visibility = View.GONE
+        findViewById<EditText>(R.id.widgetIntervalInput).visibility = View.GONE
         findViewById<TextView>(R.id.answerLinesLabel).visibility = View.GONE
         findViewById<EditText>(R.id.answerLinesInput).visibility = View.GONE
         findViewById<Button>(R.id.mainRefreshButton).visibility = View.GONE
@@ -223,6 +239,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun setFieldModeSpinner() {
+        findViewById<TextView>(R.id.sharedSectionLabel).visibility = View.VISIBLE
         val spinner = findViewById<Spinner>(R.id.fieldModeSpinner)
         spinner.visibility = View.VISIBLE
         findViewById<TextView>(R.id.fieldModeLabel).visibility = View.VISIBLE
@@ -267,6 +284,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun setTemplateFilterCheckboxes() {
+        findViewById<TextView>(R.id.sharedSectionLabel).visibility = View.VISIBLE
         val container = findViewById<View>(R.id.templateCheckboxContainer)
         container.visibility = View.VISIBLE
         findViewById<TextView>(R.id.templateFilterLabel).visibility = View.VISIBLE
@@ -288,15 +306,19 @@ class MainActivity : ComponentActivity() {
         val stored = UserPreferences.getTemplateFilter(this).filter { key ->
             available.any { matchesTemplateSelection(key, it) }
         }.toSet()
-        if (stored.size != UserPreferences.getTemplateFilter(this).size) {
-            // Remove selections from other decks.
-            UserPreferences.saveTemplateFilter(this, stored)
+        // Default to all templates for this deck if none selected yet (after deck switch clear)
+        val selected = if (stored.isEmpty()) {
+            available.map { TemplateKey(it.modelId, it.ord) }.toSet().also {
+                UserPreferences.saveTemplateFilter(this, it)
+            }
+        } else {
+            stored
         }
 
         available.forEach { option ->
             val cb = CheckBox(this)
             cb.text = option.displayName()
-            cb.isChecked = stored.any { matchesTemplateSelection(it, option) }
+            cb.isChecked = selected.any { matchesTemplateSelection(it, option) }
             cb.tag = option
             cb.setOnCheckedChangeListener { _, _ ->
                 val selected = (0 until container.childCount).mapNotNull { idx ->
@@ -311,6 +333,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun setAnswerLinesInput() {
+        findViewById<TextView>(R.id.notificationSectionLabel).visibility = View.VISIBLE
         val label = findViewById<TextView>(R.id.answerLinesLabel)
         val input = findViewById<EditText>(R.id.answerLinesInput)
         label.visibility = View.VISIBLE
@@ -323,6 +346,54 @@ class MainActivity : ComponentActivity() {
                 UserPreferences.saveContentMaxLines(this, value)
             }
         }
+    }
+
+    private fun setNotificationsToggle() {
+        findViewById<TextView>(R.id.notificationSectionLabel).visibility = View.VISIBLE
+        val label = findViewById<TextView>(R.id.notificationsLabel)
+        val toggle = findViewById<Switch>(R.id.notificationsToggle)
+        val hint = findViewById<TextView>(R.id.notificationsHint)
+        label.visibility = View.VISIBLE
+        toggle.visibility = View.VISIBLE
+        hint.visibility = View.VISIBLE
+        toggle.isChecked = UserPreferences.getNotificationsEnabled(this)
+        toggle.setOnCheckedChangeListener { _, isChecked ->
+            UserPreferences.saveNotificationsEnabled(this, isChecked)
+            if (isChecked) {
+                startPeriodicWorker()
+            } else {
+                WorkManager.getInstance(this).cancelUniqueWork("WORKER_ANKI")
+            }
+        }
+    }
+
+    private fun setWidgetIntervalInput() {
+        findViewById<TextView>(R.id.widgetSectionLabel).visibility = View.VISIBLE
+        val label = findViewById<TextView>(R.id.widgetIntervalLabel)
+        val input = findViewById<EditText>(R.id.widgetIntervalInput)
+        label.visibility = View.VISIBLE
+        input.visibility = View.VISIBLE
+        input.setText(UserPreferences.getWidgetIntervalMinutes(this).toString())
+        input.addTextChangedListener { editable ->
+            val value = editable?.toString()?.toIntOrNull()
+            if (value != null) {
+                UserPreferences.saveWidgetIntervalMinutes(this, value)
+                scheduleWidgetRefresh()
+            }
+        }
+    }
+
+    private fun scheduleWidgetRefresh() {
+        val minutes = UserPreferences.getWidgetIntervalMinutes(this).toLong()
+        val request = PeriodicWorkRequest.Builder(
+            WidgetRefreshWorker::class.java,
+            minutes, TimeUnit.MINUTES
+        ).build()
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "WIDGET_ROTATE",
+            ExistingPeriodicWorkPolicy.REPLACE,
+            request
+        )
     }
 
     private fun matchesTemplateSelection(key: TemplateKey, option: TemplateOption): Boolean {
@@ -339,18 +410,28 @@ class MainActivity : ComponentActivity() {
         val card = mAnkiDroid.queryCurrentScheduledCard(deckID)
         if (card != null) {
             mAnkiDroid.storeState(deckID, card)
-            Notifications.create().showNotification(this, card, deckName, false)
+            if (UserPreferences.getNotificationsEnabled(this)) {
+                Notifications.create().showNotification(this, card, deckName, false)
+            }
         } else {
             // No cards to show.
             val emptyCard = CardInfo()
             emptyCard.cardOrd = -1
             emptyCard.noteID = -1
             mAnkiDroid.storeState(deckID, emptyCard)
-            Notifications.create().showNotification(this, null, "", false)
+            if (UserPreferences.getNotificationsEnabled(this)) {
+                Notifications.create().showNotification(this, null, "", false)
+            }
         }
 
         // Start the periodic worker when the first card is assigned.
         startPeriodicWorker()
+        scheduleWidgetRefresh()
+        // Trigger an immediate widget refresh to reflect latest card/state.
+        CompanionWidgetProvider().onReceive(
+            this,
+            Intent(CompanionWidgetProvider.ACTION_REFRESH).apply { setClass(this@MainActivity, CompanionWidgetProvider::class.java) }
+        )
     }
 
 }

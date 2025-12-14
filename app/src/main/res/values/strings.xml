@@ -20,4 +20,11 @@
     <string name="pick_media_dir">选择媒体目录</string>
     <string name="media_dir_selected">已选媒体目录</string>
     <string name="media_dir_saved">媒体目录已保存</string>
+    <string name="notifications_label">Notifications</string>
+    <string name="notifications_hint">ON: notification bar + widget. OFF: widget only (no notification).</string>
+    <string name="widget_interval_label">Widget rotation interval (minutes, min 15)</string>
+    <string name="widget_interval_hint">Default 60 minutes</string>
+    <string name="shared_section_label">Shared settings</string>
+    <string name="notification_section_label">Notification only</string>
+    <string name="widget_section_label">Widget only</string>
 </resources>

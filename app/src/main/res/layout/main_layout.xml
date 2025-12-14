@@ -25,12 +25,39 @@
         android:layout_margin="20dp"
         android:spinnerMode="dropdown" />
 
+    <LinearLayout
+        android:id="@+id/sharedSection"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginTop="8dp"
+        android:padding="10dp"
+        android:background="@drawable/section_bg">
+
+        <TextView
+            android:id="@+id/sharedSectionLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/shared_section_label"
+            android:textStyle="bold"
+            android:textColor="@color/primaryText" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="8dp"
+            android:background="@color/primaryText"
+            android:alpha="0.15" />
+
     <TextView
         android:id="@+id/fieldModeLabel"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginStart="20dp"
-        android:layout_marginEnd="20dp"
+        android:layout_marginStart="4dp"
+        android:layout_marginEnd="4dp"
         android:text="@string/field_mode_label" />
 
     <Spinner
@@ -38,43 +65,149 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@android:drawable/btn_dropdown"
-        android:layout_margin="20dp"
+        android:layout_marginStart="4dp"
+        android:layout_marginEnd="4dp"
+        android:layout_marginTop="6dp"
         android:spinnerMode="dropdown" />
 
     <TextView
         android:id="@+id/templateFilterLabel"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginStart="20dp"
-        android:layout_marginEnd="20dp"
+        android:layout_marginStart="4dp"
+        android:layout_marginEnd="4dp"
         android:text="@string/template_filter_label" />
 
     <LinearLayout
         android:id="@+id/templateCheckboxContainer"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginStart="20dp"
-        android:layout_marginEnd="20dp"
+        android:layout_marginStart="4dp"
+        android:layout_marginEnd="4dp"
         android:layout_marginBottom="12dp"
         android:orientation="vertical" />
 
-    <TextView
-        android:id="@+id/answerLinesLabel"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="20dp"
-        android:layout_marginEnd="20dp"
-        android:text="@string/max_lines_label" />
+    </LinearLayout>
 
-    <EditText
-        android:id="@+id/answerLinesInput"
+    <LinearLayout
+        android:id="@+id/notificationSection"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginStart="20dp"
-        android:layout_marginEnd="20dp"
-        android:layout_marginBottom="12dp"
-        android:inputType="number"
-        android:hint="@string/max_lines_hint" />
+        android:orientation="vertical"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginTop="8dp"
+        android:padding="10dp"
+        android:background="@drawable/section_bg">
+
+        <TextView
+            android:id="@+id/notificationSectionLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/notification_section_label"
+            android:textStyle="bold"
+            android:textColor="@color/primaryText" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="8dp"
+            android:background="@color/primaryText"
+            android:alpha="0.15" />
+
+        <TextView
+            android:id="@+id/notificationsLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:text="@string/notifications_label" />
+
+        <Switch
+            android:id="@+id/notificationsToggle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:id="@+id/notificationsHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:layout_marginBottom="12dp"
+            android:text="@string/notifications_hint"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/answerLinesLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:text="@string/max_lines_label" />
+
+        <EditText
+            android:id="@+id/answerLinesInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:layout_marginBottom="12dp"
+            android:inputType="number"
+            android:hint="@string/max_lines_hint" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/widgetSection"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginTop="8dp"
+        android:padding="10dp"
+        android:background="@drawable/section_bg">
+
+        <TextView
+            android:id="@+id/widgetSectionLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/widget_section_label"
+            android:textStyle="bold"
+            android:textColor="@color/primaryText" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="8dp"
+            android:background="@color/primaryText"
+            android:alpha="0.15" />
+
+        <TextView
+            android:id="@+id/widgetIntervalLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:text="@string/widget_interval_label" />
+
+        <EditText
+            android:id="@+id/widgetIntervalInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:layout_marginBottom="12dp"
+            android:inputType="number"
+            android:hint="@string/widget_interval_hint" />
+
+    </LinearLayout>
 
     <LinearLayout
         android:layout_width="fill_parent"

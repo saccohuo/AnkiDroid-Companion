@@ -15,6 +15,8 @@ object UserPreferences {
     private const val KEY_TEMPLATE_FILTER = "template_filter"
     private const val KEY_MAX_LINES = "content_max_lines"
     private const val KEY_MEDIA_TREE_URI = "media_tree_uri"
+    private const val KEY_WIDGET_INTERVAL_MIN = "widget_interval_min"
+    private const val KEY_NOTIFICATIONS_ENABLED = "notifications_enabled"
 
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -63,6 +65,24 @@ object UserPreferences {
     fun getContentMaxLines(context: Context): Int {
         val stored = prefs(context).getInt(KEY_MAX_LINES, -1)
         return if (stored in 1..50) stored else 4
+    }
+
+    fun saveWidgetIntervalMinutes(context: Context, minutes: Int) {
+        val clamped = minutes.coerceIn(15, 720)
+        prefs(context).edit().putInt(KEY_WIDGET_INTERVAL_MIN, clamped).apply()
+    }
+
+    fun getWidgetIntervalMinutes(context: Context): Int {
+        val stored = prefs(context).getInt(KEY_WIDGET_INTERVAL_MIN, -1)
+        return if (stored in 15..720) stored else 60
+    }
+
+    fun saveNotificationsEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_NOTIFICATIONS_ENABLED, enabled).apply()
+    }
+
+    fun getNotificationsEnabled(context: Context): Boolean {
+        return prefs(context).getBoolean(KEY_NOTIFICATIONS_ENABLED, true)
     }
 
     fun saveMediaTreeUri(context: Context, uri: String) {
