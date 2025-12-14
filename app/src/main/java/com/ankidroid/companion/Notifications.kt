@@ -191,6 +191,44 @@ fun sanitizeForWidget(raw: String?, fallback: String?): CharSequence {
         else -> ""
     }
     val NL = "§§NL§§"
+    fun applyPrefixMarkers(html: String): String {
+        val prefixTokens = listOf("❯ ", "➤ ", "→ ", "▪ ", "✎ ", "• ")
+        val rules = listOf(
+            "def" to "❯ ",
+            "definition" to "❯ ",
+            "mean" to "❯ ",
+            "sentence" to "➤ ",
+            "quote" to "❯ ",
+            "tran" to "→ ",
+            "translation" to "→ ",
+            "tr" to "→ ",
+            "ex-tr" to "→ ",
+            "ex" to "▪ ",
+            "example" to "▪ ",
+            "note" to "✎ ",
+            "memo" to "✎ ",
+            "zh" to "• ",
+            "cn" to "• ",
+            "chinese" to "• "
+        )
+        var updated = html
+        for ((keyword, prefix) in rules) {
+            val regex = Regex("(?is)<([a-z0-9]+)([^>]*)((class|id|aria-label)\\s*=\\s*\"[^\"]*?${keyword}[^\"]*\")[^>]*>")
+            updated = regex.replace(updated) { mr ->
+                val start = mr.range.first
+                val before = updated.substring(0, start)
+                val already = prefixTokens.any { tok ->
+                    before.endsWith("$NL$tok") || before.endsWith("\n$tok")
+                }
+                if (already) {
+                    mr.value
+                } else {
+                    "$NL$prefix${mr.value}"
+                }
+            }
+        }
+        return updated
+    }
     val withAudioIcon = source
         .replace(Regex("\\[sound:[^\\]]+\\]"), "\uD83D\uDD0A ")
         .replace(Regex("(?is)<audio[^>]*src\\s*=\\s*\\\"([^\\\"]+)\\\"[^>]*>(?:.*?)</audio>"), "\uD83D\uDD0A ")
@@ -210,17 +248,9 @@ fun sanitizeForWidget(raw: String?, fallback: String?): CharSequence {
         .replace(Regex("(?is)<blockquote[^>]*>"), "\n❯ ")
         .replace(Regex("(?is)</blockquote>"), "\n\n")
 
-    val styledBlocks = withQuotes
-        // 针对常见样式块添加前缀，模拟左边框/高亮
-        .replace(Regex("(?is)<div[^>]*class\\s*=\\s*\\\"zh\\\"[^>]*>"), "\n• ")
-        .replace(Regex("(?is)<div[^>]*class\\s*=\\s*\\\"def\\\"[^>]*>"), "\n❯ ")
-        .replace(Regex("(?is)<div[^>]*class\\s*=\\s*\\\"sentence\\\"[^>]*>"), "\n➤ ")
-        .replace(Regex("(?is)<div[^>]*class\\s*=\\s*\\\"tr\\\"[^>]*>"), "\n→ ")
-        .replace(Regex("(?is)<div[^>]*class\\s*=\\s*\\\"ex\\\"[^>]*>"), "\n▪ ")
-        .replace(Regex("(?is)<div[^>]*class\\s*=\\s*\\\"ex-tr\\\"[^>]*>"), "${NL}→ ")
-        .replace(Regex("(?is)<div[^>]*class\\s*=\\s*\\\"notes\\\"[^>]*>"), "\n✎ ")
+    val prefixed = applyPrefixMarkers(withQuotes)
 
-    val blockCollapsed = styledBlocks
+    val blockCollapsed = prefixed
         .replace(Regex("(?is)<p[^>]*>"), NL)
         .replace(Regex("(?is)</p>"), NL)
         .replace(Regex("(?is)<div[^>]*>"), NL)
