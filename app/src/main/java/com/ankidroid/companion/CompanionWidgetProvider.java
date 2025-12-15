@@ -78,26 +78,33 @@ public class CompanionWidgetProvider extends AppWidgetProvider {
         CardInfo card = null;
         String deckName = "";
 
-        if (state != null) {
-            deckName = helper.getApi().getDeckName(state.deckId);
-            WidgetMode mode = UserPreferences.INSTANCE.getWidgetMode(context);
-            if (mode == WidgetMode.QUEUE) {
-                // Re-read the latest content for the current top-of-queue card.
-                card = helper.getTopCardForDeck(state.deckId);
-            } else {
-                // Random mode: keep current random card if exists; otherwise load a random one.
-                if (randomIndex >= 0 && randomIndex < randomQueue.size()) {
-                    card = randomQueue.get(randomIndex);
+        if (state != null && state.deckId > 0 && helper.isPermissionGranted()) {
+            try {
+                String dn = helper.getApi().getDeckName(state.deckId);
+                deckName = dn != null ? dn : "";
+                WidgetMode mode = UserPreferences.INSTANCE.getWidgetMode(context);
+                if (mode == WidgetMode.QUEUE) {
+                    // Re-read the latest content for the current top-of-queue card.
+                    card = helper.getTopCardForDeck(state.deckId);
                 } else {
-                    card = helper.queryCurrentScheduledCard(state.deckId, WidgetMode.RANDOM);
-                    if (card != null) {
-                        randomQueue.clear();
-                        randomQueue.add(card);
-                        randomIndex = 0;
+                    // Random mode: keep current random card if exists; otherwise load a random one.
+                    if (randomIndex >= 0 && randomIndex < randomQueue.size()) {
+                        card = randomQueue.get(randomIndex);
+                    } else {
+                        card = helper.queryCurrentScheduledCard(state.deckId, WidgetMode.RANDOM);
+                        if (card != null) {
+                            randomQueue.clear();
+                            randomQueue.add(card);
+                            randomIndex = 0;
+                        }
                     }
                 }
+                if (card != null) helper.storeState(state.deckId, card);
+            } catch (Exception ignored) {
+                // Gracefully handle API lookup failures on cold start
+                card = null;
+                deckName = "";
             }
-            if (card != null) helper.storeState(state.deckId, card);
         }
 
         for (int id : ids) {
@@ -110,7 +117,15 @@ public class CompanionWidgetProvider extends AppWidgetProvider {
 
         AnkiDroidHelper helper = new AnkiDroidHelper(context);
         StoredState state = helper.getStoredState();
-        String deckName = state != null ? helper.getApi().getDeckName(state.deckId) : "";
+        String deckName = "";
+        if (state != null && state.deckId > 0 && helper.isPermissionGranted()) {
+            try {
+                String dn = helper.getApi().getDeckName(state.deckId);
+                deckName = dn != null ? dn : "";
+            } catch (Exception ignored) {
+                deckName = "";
+            }
+        }
         FieldMode mode = UserPreferences.INSTANCE.getFieldMode(context);
         WidgetMode widgetMode = UserPreferences.INSTANCE.getWidgetMode(context);
 

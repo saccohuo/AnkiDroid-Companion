@@ -9,6 +9,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
+import android.util.TypedValue
 import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.AdapterView
@@ -21,6 +22,7 @@ import android.widget.TextView
 import android.widget.Toast
 import android.widget.Switch
 import androidx.activity.ComponentActivity
+import android.graphics.Typeface
 import androidx.core.widget.addTextChangedListener
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequest
@@ -38,6 +40,12 @@ class MainActivity : ComponentActivity() {
         setContentView(R.layout.main_layout)
         createNotificationChannel()
         setup()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Re-evaluate deck availability when returning from AnkiDroid.
+        setDecksSpinner()
     }
 
     private fun createNotificationChannel() {
@@ -79,12 +87,8 @@ class MainActivity : ComponentActivity() {
             mAnkiDroid = AnkiDroidHelper(this)
             if (mAnkiDroid.shouldRequestPermission()) {
                 explainError("AnkiDroid Read Write permission is not granted, please make sure that it is given!")
-                // requestPermissionLauncher.launch(AddContentApi.READ_WRITE_PERMISSION)
                 mAnkiDroid.requestPermission(this, 0)
-            } else if (!hasMediaPermissions()) {
-                requestMediaPermissions()
             } else {
-                // READ_MEDIA_xxx will be requested by the system when media is accessed to avoid double dialogs
                 startApp()
             }
         }
@@ -157,15 +161,9 @@ class MainActivity : ComponentActivity() {
             val grantResult = grantResults[index]
             if (permission == AddContentApi.READ_WRITE_PERMISSION) {
                 if (grantResult == PackageManager.PERMISSION_GRANTED) {
-                    if (hasMediaPermissions()) startApp() else requestMediaPermissions()
+                    startApp()
                 } else {
                     explainError("AnkiDroid Read Write permission is not granted, please make sure that it is given!")
-                }
-            } else if (permission == android.Manifest.permission.READ_MEDIA_IMAGES ||
-                permission == android.Manifest.permission.READ_MEDIA_AUDIO ||
-                permission == android.Manifest.permission.READ_EXTERNAL_STORAGE) {
-                if (hasMediaPermissions() && mAnkiDroid.isPermissionGranted) {
-                    startApp()
                 }
             }
         }
@@ -217,31 +215,43 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun hasMediaPermissions(): Boolean {
-        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            checkSelfPermission(android.Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED &&
-                    checkSelfPermission(android.Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED
-        } else {
-            checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
-        }
-    }
-
-    private fun requestMediaPermissions() {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            requestPermissions(arrayOf(
-                android.Manifest.permission.READ_MEDIA_IMAGES,
-                android.Manifest.permission.READ_MEDIA_AUDIO
-            ), 1)
-        } else {
-            requestPermissions(arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE), 1)
-        }
-    }
-
     private fun setDecksSpinner() {
         val items = mutableListOf<String>()
         var startIndex = 0
         var lastDeckId:Long = -1
-        val deckList = mAnkiDroid.api.deckList
+        var deckList = mAnkiDroid.api.deckList
+        // If AnkiDroid was killed and restarted, re-initialize helper and retry.
+        if (deckList == null || deckList.isEmpty()) {
+            mAnkiDroid = AnkiDroidHelper(this)
+            deckList = mAnkiDroid.api.deckList
+        }
+
+        if (deckList == null || deckList.isEmpty()) {
+            // Show only the hint and the refresh button so the user can retry after opening AnkiDroid.
+            findViewById<Spinner>(R.id.spinner1).visibility = View.GONE
+            findViewById<TextView>(R.id.mainTextView).apply {
+                text = getString(R.string.no_decks_hint)
+                visibility = View.VISIBLE
+                setTypeface(null, Typeface.BOLD)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            }
+            findViewById<Button>(R.id.mainRefreshButton).visibility = View.VISIBLE
+            // Clear template UI when no decks are available
+            updateTemplateFilterCheckboxes(null)
+            // Hide other controls to reduce confusion until decks are available again
+            toggleDeckDependentViews(false)
+            return
+        }
+
+        // Ensure the main label is back to the normal prompt when decks are available again.
+        findViewById<TextView>(R.id.mainTextView).apply {
+            text = "Select a deck:"
+            visibility = View.VISIBLE
+            setTypeface(null, Typeface.NORMAL)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        }
+        findViewById<Button>(R.id.mainRefreshButton).visibility = View.VISIBLE
+        toggleDeckDependentViews(true)
 
         val localState = mAnkiDroid.storedState
         if (localState != null) {
@@ -462,8 +472,28 @@ class MainActivity : ComponentActivity() {
 
     private fun onClickRefresh() {
         val decksDropdown = findViewById<Spinner>(R.id.spinner1)
+        // If no decks loaded yet, try to reload (e.g., after opening AnkiDroid)
+        var deckList = mAnkiDroid.api.deckList
+        if (deckList == null || deckList.isEmpty()) {
+            setDecksSpinner()
+            deckList = mAnkiDroid.api.deckList
+            if (deckList == null || deckList.isEmpty()) {
+                Toast.makeText(this, getString(R.string.no_decks_hint), Toast.LENGTH_SHORT).show()
+                return
+            }
+        }
+
+        if (decksDropdown.visibility != View.VISIBLE || decksDropdown.adapter == null || decksDropdown.adapter.count == 0 || decksDropdown.selectedItem == null) {
+            Toast.makeText(this, getString(R.string.no_decks_hint), Toast.LENGTH_SHORT).show()
+            return
+        }
+
         val deckName = decksDropdown.selectedItem.toString()
         val deckID = mAnkiDroid.findDeckIdByName(deckName)
+        if (deckID == null || deckID == -1L) {
+            Toast.makeText(this, getString(R.string.no_decks_hint), Toast.LENGTH_SHORT).show()
+            return
+        }
         mAnkiDroid.storeDeckReference(deckName, deckID)
 
         val card = mAnkiDroid.queryCurrentScheduledCard(deckID)
@@ -491,6 +521,27 @@ class MainActivity : ComponentActivity() {
             this,
             Intent(CompanionWidgetProvider.ACTION_REFRESH).apply { setClass(this@MainActivity, CompanionWidgetProvider::class.java) }
         )
+    }
+
+    private fun toggleDeckDependentViews(show: Boolean) {
+        val visibility = if (show) View.VISIBLE else View.GONE
+        findViewById<Spinner>(R.id.spinner1).visibility = if (show) View.VISIBLE else View.GONE
+        findViewById<TextView>(R.id.fieldModeLabel).visibility = visibility
+        findViewById<Spinner>(R.id.fieldModeSpinner).visibility = visibility
+        findViewById<TextView>(R.id.widgetModeLabel).visibility = visibility
+        findViewById<Spinner>(R.id.widgetModeSpinner).visibility = visibility
+        findViewById<TextView>(R.id.templateFilterLabel).visibility = visibility
+        findViewById<View>(R.id.templateCheckboxContainer).visibility = visibility
+        findViewById<TextView>(R.id.sharedSectionLabel).visibility = visibility
+        findViewById<TextView>(R.id.notificationSectionLabel).visibility = visibility
+        findViewById<TextView>(R.id.widgetSectionLabel).visibility = visibility
+        findViewById<TextView>(R.id.notificationsLabel).visibility = visibility
+        findViewById<Switch>(R.id.notificationsToggle).visibility = visibility
+        findViewById<TextView>(R.id.notificationsHint).visibility = visibility
+        findViewById<TextView>(R.id.widgetIntervalLabel).visibility = visibility
+        findViewById<EditText>(R.id.widgetIntervalInput).visibility = visibility
+        findViewById<TextView>(R.id.answerLinesLabel).visibility = visibility
+        findViewById<EditText>(R.id.answerLinesInput).visibility = visibility
     }
 
 }

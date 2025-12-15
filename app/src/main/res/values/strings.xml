@@ -15,6 +15,7 @@
     <string name="template_option">Template%1$d</string>
     <string name="max_lines_label">Notification max lines (1-50)</string>
     <string name="max_lines_hint">Default 4 lines; adjust as needed</string>
+    <string name="no_decks_hint">No decks. Open AnkiDroid, allow API, then tap Refresh.</string>
     <string name="widget_open_app">Open</string>
     <string name="widget_empty_prompt">Pick a deck in the app and refresh</string>
     <string name="pick_media_dir">Choose media directory</string>
