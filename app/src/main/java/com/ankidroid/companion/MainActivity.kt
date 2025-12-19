@@ -101,7 +101,7 @@ class MainActivity : ComponentActivity() {
 
         setDecksSpinner()
         setFieldModeSpinner()
-        setWidgetModeSpinner()
+        setCardSourceSpinner()
         setTemplateFilterCheckboxes()
         setNotificationsToggle()
         setWidgetIntervalInput()
@@ -130,8 +130,7 @@ class MainActivity : ComponentActivity() {
         findViewById<Spinner>(R.id.spinner1).visibility = View.GONE
         findViewById<TextView>(R.id.fieldModeLabel).visibility = View.GONE
         findViewById<Spinner>(R.id.fieldModeSpinner).visibility = View.GONE
-        findViewById<TextView>(R.id.widgetModeLabel).visibility = View.GONE
-        findViewById<Spinner>(R.id.widgetModeSpinner).visibility = View.GONE
+            // card source controls handled together
         findViewById<TextView>(R.id.templateFilterLabel).visibility = View.GONE
         findViewById<View>(R.id.templateCheckboxContainer).visibility = View.GONE
         findViewById<TextView>(R.id.sharedSectionLabel).visibility = View.GONE
@@ -142,8 +141,7 @@ class MainActivity : ComponentActivity() {
         findViewById<TextView>(R.id.notificationsHint).visibility = View.GONE
         findViewById<TextView>(R.id.widgetIntervalLabel).visibility = View.GONE
         findViewById<EditText>(R.id.widgetIntervalInput).visibility = View.GONE
-        findViewById<TextView>(R.id.widgetModeLabel).visibility = View.GONE
-        findViewById<Spinner>(R.id.widgetModeSpinner).visibility = View.GONE
+            // card source controls handled together
         findViewById<TextView>(R.id.answerLinesLabel).visibility = View.GONE
         findViewById<EditText>(R.id.answerLinesInput).visibility = View.GONE
         findViewById<Button>(R.id.mainRefreshButton).visibility = View.GONE
@@ -169,26 +167,55 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun setWidgetModeSpinner() {
-        val spinner = findViewById<Spinner>(R.id.widgetModeSpinner)
+    private fun setCardSourceSpinner() {
+        val spinner = findViewById<Spinner>(R.id.cardSourceSpinner)
         spinner.visibility = View.VISIBLE
-        findViewById<TextView>(R.id.widgetModeLabel).visibility = View.VISIBLE
+        findViewById<TextView>(R.id.cardSourceLabel).visibility = View.VISIBLE
 
         val options = listOf(
-            getString(R.string.widget_mode_queue),
-            getString(R.string.widget_mode_random)
+            getString(R.string.card_source_review),
+            getString(R.string.card_source_random_queue),
+            getString(R.string.card_source_random_roam)
         )
 
         val adapter: ArrayAdapter<String> =
             ArrayAdapter<String>(this, android.R.layout.simple_spinner_dropdown_item, options)
         spinner.adapter = adapter
 
-        val currentMode = UserPreferences.getWidgetMode(this)
+        val currentMode = UserPreferences.getCardSourceMode(this)
         val startIndex = when (currentMode) {
-            UserPreferences.WidgetMode.QUEUE -> 0
-            UserPreferences.WidgetMode.RANDOM -> 1
+            UserPreferences.CardSourceMode.REVIEW -> 0
+            UserPreferences.CardSourceMode.RANDOM_QUEUE -> 1
+            UserPreferences.CardSourceMode.RANDOM_ROAM -> 2
         }
         spinner.setSelection(startIndex)
+
+        val thresholdInput = findViewById<EditText>(R.id.randomQueueThresholdInput)
+        val thresholdLabel = findViewById<TextView>(R.id.randomQueueThresholdLabel)
+        val cacheLabel = findViewById<TextView>(R.id.randomCacheSizeLabel)
+        val cacheInput = findViewById<EditText>(R.id.randomCacheSizeInput)
+        val sampleLabel = findViewById<TextView>(R.id.randomSampleLimitLabel)
+        val sampleInput = findViewById<EditText>(R.id.randomSampleLimitInput)
+        thresholdInput.setText(UserPreferences.getRandomQueueThreshold(this).toString())
+        val updateThresholdVisibility: (Int) -> Unit = { position ->
+            val show = position == 1
+            val visibility = if (show) View.VISIBLE else View.GONE
+            thresholdInput.visibility = visibility
+            thresholdLabel.visibility = visibility
+        }
+        val updateRandomSettingsVisibility: (Int) -> Unit = { position ->
+            val showRandomSettings = position != 0
+            val visibility = if (showRandomSettings) View.VISIBLE else View.GONE
+            cacheLabel.visibility = visibility
+            cacheInput.visibility = visibility
+            sampleLabel.visibility = visibility
+            sampleInput.visibility = visibility
+        }
+        updateThresholdVisibility(startIndex)
+        updateRandomSettingsVisibility(startIndex)
+
+        cacheInput.setText(UserPreferences.getRandomCacheSize(this).toString())
+        sampleInput.setText(UserPreferences.getRandomSampleLimit(this).toString())
 
         spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(
@@ -198,11 +225,13 @@ class MainActivity : ComponentActivity() {
                 id: Long
             ) {
                 val mode = when (position) {
-                    0 -> UserPreferences.WidgetMode.QUEUE
-                    else -> UserPreferences.WidgetMode.RANDOM
+                    0 -> UserPreferences.CardSourceMode.REVIEW
+                    1 -> UserPreferences.CardSourceMode.RANDOM_QUEUE
+                    else -> UserPreferences.CardSourceMode.RANDOM_ROAM
                 }
-                UserPreferences.saveWidgetMode(this@MainActivity, mode)
-                // Refresh widget to apply mode change immediately
+                UserPreferences.saveCardSourceMode(this@MainActivity, mode)
+                updateThresholdVisibility(position)
+                updateRandomSettingsVisibility(position)
                 CompanionWidgetProvider().onReceive(
                     this@MainActivity,
                     Intent(CompanionWidgetProvider.ACTION_REFRESH).apply { setClass(this@MainActivity, CompanionWidgetProvider::class.java) }
@@ -213,10 +242,30 @@ class MainActivity : ComponentActivity() {
                 // no-op
             }
         }
+
+        thresholdInput.addTextChangedListener { editable ->
+            val value = editable?.toString()?.toIntOrNull()
+            if (value != null) {
+                UserPreferences.saveRandomQueueThreshold(this, value)
+            }
+        }
+        cacheInput.addTextChangedListener { editable ->
+            val value = editable?.toString()?.toIntOrNull()
+            if (value != null) {
+                UserPreferences.saveRandomCacheSize(this, value)
+            }
+        }
+        sampleInput.addTextChangedListener { editable ->
+            val value = editable?.toString()?.toIntOrNull()
+            if (value != null) {
+                UserPreferences.saveRandomSampleLimit(this, value)
+            }
+        }
     }
 
     private fun setDecksSpinner() {
         val items = mutableListOf<String>()
+        val deckIds = mutableListOf<Long>()
         var startIndex = 0
         var lastDeckId:Long = -1
         var deckList = mAnkiDroid.api.deckList
@@ -262,6 +311,7 @@ class MainActivity : ComponentActivity() {
         if (deckList != null) {
             for (item in deckList) {
                 items.add(item.value)
+                deckIds.add(item.key)
                 if (item.key == lastDeckId) {
                     startIndex = count
                 }
@@ -283,14 +333,20 @@ class MainActivity : ComponentActivity() {
                 position: Int,
                 id: Long
             ) {
-                val selectedDeckName = items.getOrNull(position) ?: return
-                val deckId = mAnkiDroid.findDeckIdByName(selectedDeckName)
+                val deckId = deckIds.getOrNull(position) ?: -1L
                 if (deckId != currentDeckId) {
                     // Clear template selections from the previously chosen deck
                     UserPreferences.saveTemplateFilter(this@MainActivity, emptySet())
                     currentDeckId = deckId
+                    // Persist the selected deck so widget refresh uses the latest deck instead of stale state.
+                    mAnkiDroid.storeState(deckId, null)
                 }
-                updateTemplateFilterCheckboxes(deckId)
+                updateTemplateFilterCheckboxes(if (deckId >= 0) deckId else null)
+                // Refresh widget state when deck changes
+                CompanionWidgetProvider().onReceive(
+                    this@MainActivity,
+                    Intent(CompanionWidgetProvider.ACTION_REFRESH).apply { setClass(this@MainActivity, CompanionWidgetProvider::class.java) }
+                )
             }
 
             override fun onNothingSelected(parent: AdapterView<*>?) {
@@ -299,12 +355,9 @@ class MainActivity : ComponentActivity() {
         }
 
         // Initialize template checkboxes for preselected deck.
-        val initialDeckName = items.getOrNull(startIndex)
-        if (initialDeckName != null) {
-            val deckId = mAnkiDroid.findDeckIdByName(initialDeckName)
-            currentDeckId = deckId
-            updateTemplateFilterCheckboxes(deckId)
-        }
+        val initialDeckId = deckIds.getOrNull(startIndex) ?: -1L
+        currentDeckId = initialDeckId
+        updateTemplateFilterCheckboxes(if (initialDeckId >= 0) initialDeckId else null)
     }
 
     private fun setFieldModeSpinner() {
@@ -528,8 +581,17 @@ class MainActivity : ComponentActivity() {
         findViewById<Spinner>(R.id.spinner1).visibility = if (show) View.VISIBLE else View.GONE
         findViewById<TextView>(R.id.fieldModeLabel).visibility = visibility
         findViewById<Spinner>(R.id.fieldModeSpinner).visibility = visibility
-        findViewById<TextView>(R.id.widgetModeLabel).visibility = visibility
-        findViewById<Spinner>(R.id.widgetModeSpinner).visibility = visibility
+        findViewById<TextView>(R.id.cardSourceLabel).visibility = visibility
+        findViewById<Spinner>(R.id.cardSourceSpinner).visibility = visibility
+        val mode = UserPreferences.getCardSourceMode(this)
+        val thresholdVisibility = if (show && mode == UserPreferences.CardSourceMode.RANDOM_QUEUE) View.VISIBLE else View.GONE
+        val randomSettingsVisibility = if (show && mode != UserPreferences.CardSourceMode.REVIEW) View.VISIBLE else View.GONE
+        findViewById<TextView>(R.id.randomQueueThresholdLabel).visibility = thresholdVisibility
+        findViewById<EditText>(R.id.randomQueueThresholdInput).visibility = thresholdVisibility
+        findViewById<TextView>(R.id.randomCacheSizeLabel).visibility = randomSettingsVisibility
+        findViewById<EditText>(R.id.randomCacheSizeInput).visibility = randomSettingsVisibility
+        findViewById<TextView>(R.id.randomSampleLimitLabel).visibility = randomSettingsVisibility
+        findViewById<EditText>(R.id.randomSampleLimitInput).visibility = randomSettingsVisibility
         findViewById<TextView>(R.id.templateFilterLabel).visibility = visibility
         findViewById<View>(R.id.templateCheckboxContainer).visibility = visibility
         findViewById<TextView>(R.id.sharedSectionLabel).visibility = visibility

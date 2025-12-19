@@ -29,7 +29,17 @@
     <string name="notification_section_label">Notification only</string>
     <string name="widget_section_label">Widget only</string>
     <string name="version_label">Version %1$s</string>
-    <string name="widget_mode_label">Widget mode</string>
-    <string name="widget_mode_queue">Strict queue (feedback allowed)</string>
-    <string name="widget_mode_random">Random card (no feedback)</string>
+    <string name="card_source_label">Card source</string>
+    <string name="card_source_review">Review mode</string>
+    <string name="card_source_random_queue">Random queue mode</string>
+    <string name="card_source_random_roam">Random deck mode</string>
+    <string name="random_queue_threshold_label">Queue threshold for roaming (cards)</string>
+    <string name="random_cache_size_label">Random cache size (cards)</string>
+    <string name="random_cache_size_hint">Default 5; range 3-50</string>
+    <string name="random_sample_limit_label">Random sample limit (notes to scan)</string>
+    <string name="random_sample_limit_hint">Default 80; range 10-500</string>
+    <string name="widget_roam_label_review">Review mode</string>
+    <string name="widget_roam_label_random_queue">Random queue mode</string>
+    <string name="widget_roam_label_fallback">Fallback to Random Deck mode (queue=%1$d)</string>
+    <string name="widget_roam_label_random_roam">Random Deck mode</string>
 </resources>

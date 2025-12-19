@@ -23,6 +23,7 @@ import static com.ichi2.anki.api.AddContentApi.READ_WRITE_PERMISSION;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.LinkedHashSet;
 import java.util.Collections;
 import java.util.Set;
 import java.util.HashSet;
@@ -159,9 +160,16 @@ public class AnkiDroidHelper {
 
         Map<String, Object> message = new HashMap<>();
         message.put("deck_id", deckId);
-        message.put("note_id", card.noteID);
-        message.put("card_ord", card.cardOrd);
-        message.put("start_time", card.cardStartTime);
+        if (card != null) {
+            message.put("note_id", card.noteID);
+            message.put("card_ord", card.cardOrd);
+            message.put("start_time", card.cardStartTime);
+        } else {
+            // Only deck was updated; clear card-related fields.
+            message.put("note_id", -1);
+            message.put("card_ord", -1);
+            message.put("start_time", 0);
+        }
         JSONObject js = new JSONObject(message);
 
         cardsDb.edit().putString(KEY_CURRENT_STATE, js.toString()).apply();
@@ -194,10 +202,10 @@ public class AnkiDroidHelper {
 
     @SuppressLint("Range,DirectSystemCurrentTimeMillisUsage")
     public CardInfo queryCurrentScheduledCard(long deckID) {
-        return queryCurrentScheduledCard(deckID, UserPreferences.WidgetMode.QUEUE);
+        return queryCurrentScheduledCard(deckID, UserPreferences.CardSourceMode.REVIEW);
     }
 
-    public CardInfo queryCurrentScheduledCard(long deckID, UserPreferences.WidgetMode mode) {
+    public CardInfo queryCurrentScheduledCard(long deckID, UserPreferences.CardSourceMode mode) {
         // Log.d(TAG, "QueryForCurrentCard");
         String[] deckArguments = new String[deckID == -1 ? 1 : 2];
         String deckSelector = "limit=?";
@@ -297,12 +305,12 @@ public class AnkiDroidHelper {
                             specificCardCursor.close();
                         }
                     }
-                    if (mode == UserPreferences.WidgetMode.RANDOM) {
+                    if (mode != UserPreferences.CardSourceMode.REVIEW) {
                         Collections.shuffle(cards);
                     }
-                    // Only skip the already-shown card in RANDOM mode; in QUEUE mode we must keep the
+                    // Only skip the already-shown card in random modes; in REVIEW mode we must keep the
                     // exact top-of-queue card to avoid oscillating between two items when refreshing.
-                    if (mode == UserPreferences.WidgetMode.RANDOM) {
+                    if (mode != UserPreferences.CardSourceMode.REVIEW) {
                         StoredState current = getStoredState();
                         if (current != null && cards.size() > 1) {
                             for (int i = cards.size() - 1; i >= 0; i--) {
@@ -326,6 +334,384 @@ public class AnkiDroidHelper {
     public CardInfo getTopCardForDeck(long deckId) {
         CardInfo card = queryCurrentScheduledCard(deckId);
         return card;
+    }
+
+    public List<CardInfo> fetchQueueCards(long deckId, boolean shuffle) {
+        ArrayList<CardInfo> cards = new ArrayList<>();
+        String[] deckArguments = new String[deckId == -1 ? 1 : 2];
+        String deckSelector = "limit=?";
+        deckArguments[0] = "" + 50;
+        if (deckId != -1) {
+            deckSelector += ",deckID=?";
+            deckArguments[1] = "" + deckId;
+        }
+        if (!isPermissionGranted()) {
+            return cards;
+        }
+        Cursor reviewInfoCursor =
+                mContext.getContentResolver().query(FlashCardsContract.ReviewInfo.CONTENT_URI, null, deckSelector, deckArguments, null);
+
+        if (reviewInfoCursor == null || !reviewInfoCursor.moveToFirst()) {
+            if (reviewInfoCursor != null) {
+                reviewInfoCursor.close();
+            }
+            return cards;
+        }
+
+        try {
+            do {
+                CardInfo card = new CardInfo();
+                card.cardOrd = reviewInfoCursor.getInt(reviewInfoCursor.getColumnIndex(FlashCardsContract.ReviewInfo.CARD_ORD));
+                card.noteID = reviewInfoCursor.getLong(reviewInfoCursor.getColumnIndex(FlashCardsContract.ReviewInfo.NOTE_ID));
+                card.buttonCount = reviewInfoCursor.getInt(reviewInfoCursor.getColumnIndex(FlashCardsContract.ReviewInfo.BUTTON_COUNT));
+
+                try {
+                    card.fileNames = new JSONArray(reviewInfoCursor.getString(reviewInfoCursor.getColumnIndex(FlashCardsContract.ReviewInfo.MEDIA_FILES)));
+                    card.nextReviewTexts = new JSONArray(reviewInfoCursor.getString(reviewInfoCursor.getColumnIndex(FlashCardsContract.ReviewInfo.NEXT_REVIEW_TIMES)));
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
+                card.cardStartTime = System.currentTimeMillis();
+                long modelId = fetchModelId(card.noteID);
+                card.modelId = modelId;
+                cards.add(card);
+            } while (reviewInfoCursor.moveToNext());
+        } finally {
+            reviewInfoCursor.close();
+        }
+
+        // Apply template filter
+        ArrayList<CardInfo> filtered = new ArrayList<>();
+        final Set<TemplateKey> allowedTemplates = UserPreferences.INSTANCE.getTemplateFilter(mContext);
+        for (CardInfo card : cards) {
+            if (allowedTemplates.isEmpty() || templateMatches(allowedTemplates, new TemplateKey(card.modelId, card.cardOrd))) {
+                filtered.add(card);
+            }
+        }
+        cards = filtered;
+        if (cards.isEmpty()) return cards;
+
+        // Enrich with question/answer text
+        for (CardInfo card : cards) {
+            Uri noteUri = Uri.withAppendedPath(FlashCardsContract.Note.CONTENT_URI, Long.toString(card.noteID));
+            Uri cardsUri = Uri.withAppendedPath(noteUri, "cards");
+            Uri specificCardUri = Uri.withAppendedPath(cardsUri, Integer.toString(card.cardOrd));
+            final Cursor specificCardCursor = mContext.getContentResolver().query(specificCardUri,
+                    CARD_PROJECTION,
+                    null,
+                    null,
+                    null
+            );
+            if (specificCardCursor != null && specificCardCursor.moveToFirst()) {
+                card.rawAnswer = specificCardCursor.getString(specificCardCursor.getColumnIndex(FlashCardsContract.Card.ANSWER));
+                card.rawQuestion = specificCardCursor.getString(specificCardCursor.getColumnIndex(FlashCardsContract.Card.QUESTION));
+                card.simpleAnswer = specificCardCursor.getString(specificCardCursor.getColumnIndex(FlashCardsContract.Card.ANSWER_PURE));
+                card.simpleQuestion = specificCardCursor.getString(specificCardCursor.getColumnIndex(FlashCardsContract.Card.QUESTION_SIMPLE));
+                card.a = card.rawAnswer != null && !card.rawAnswer.isEmpty() ? card.rawAnswer : card.simpleAnswer;
+                card.q = card.rawQuestion != null && !card.rawQuestion.isEmpty() ? card.rawQuestion : card.simpleQuestion;
+            }
+            if (specificCardCursor != null) {
+                specificCardCursor.close();
+            }
+        }
+
+        if (shuffle) {
+            Collections.shuffle(cards);
+        }
+        return cards;
+    }
+
+    public List<CardInfo> fetchRandomDeckCards(long deckId, int targetCount, int sampleLimit) {
+        return fetchRandomDeckCardsInternal(deckId, targetCount, sampleLimit, false, true);
+    }
+
+    public List<CardInfo> fetchRandomDeckCardsNoReview(long deckId, int targetCount, int sampleLimit) {
+        return fetchRandomDeckCardsInternal(deckId, targetCount, sampleLimit, false, false);
+    }
+
+    private List<CardInfo> fetchRandomDeckCardsInternal(long deckId, int targetCount, int sampleLimit, boolean ignoreTemplateFilter, boolean useReviewQueue) {
+        ArrayList<CardInfo> result = new ArrayList<>();
+        if (deckId == -1L || !isPermissionGranted()) {
+            return result;
+        }
+        int cap = Math.max(1, sampleLimit);
+        ArrayList<Long> noteIds = new ArrayList<>();
+        // Filter notes by deckId explicitly to avoid pulling other decks.
+        Cursor reviewCursor = null;
+        if (useReviewQueue) {
+            try {
+                reviewCursor = mContext.getContentResolver().query(
+                        FlashCardsContract.ReviewInfo.CONTENT_URI,
+                        new String[]{FlashCardsContract.ReviewInfo.NOTE_ID},
+                        "did=?",
+                        new String[]{String.valueOf(deckId)},
+                        null
+                );
+            } catch (IllegalArgumentException e) {
+                Log.w("AnkiDroidHelper", "Review deck filter not supported with did: " + e.getMessage());
+                try {
+                    reviewCursor = mContext.getContentResolver().query(
+                            FlashCardsContract.ReviewInfo.CONTENT_URI,
+                            new String[]{FlashCardsContract.ReviewInfo.NOTE_ID, "did"},
+                            null,
+                            null,
+                            null
+                    );
+                } catch (IllegalArgumentException ex) {
+                    Log.w("AnkiDroidHelper", "Review table query unsupported: " + ex.getMessage());
+                    reviewCursor = null;
+                }
+            }
+        }
+        if (reviewCursor != null) {
+            try {
+                int noteIdx = reviewCursor.getColumnIndex(FlashCardsContract.ReviewInfo.NOTE_ID);
+                int didIdx = reviewCursor.getColumnIndex("did");
+                if (noteIdx != -1 && reviewCursor.moveToFirst()) {
+                    do {
+                        if (noteIds.size() >= cap) break;
+                        if (didIdx != -1) {
+                            long did = reviewCursor.getLong(didIdx);
+                            if (did != deckId) continue;
+                        }
+                        noteIds.add(reviewCursor.getLong(noteIdx));
+                    } while (reviewCursor.moveToNext());
+                }
+            } finally {
+                reviewCursor.close();
+            }
+        }
+        int reviewPulled = noteIds.size();
+        int noteTablePulled = noteIds.size() - reviewPulled;
+        // If still insufficient, pull note ids from card table by deck to widen coverage (roam).
+        if (noteIds.size() < cap) {
+            Cursor cardCursor = null;
+            try {
+                // Prefer the official card URI and deck column constant.
+                Uri cardsUri = Uri.parse("content://com.ichi2.anki.flashcards/cards");
+                cardCursor = mContext.getContentResolver().query(
+                        cardsUri,
+                        new String[]{FlashCardsContract.Card.NOTE_ID, FlashCardsContract.Card.DECK_ID},
+                        FlashCardsContract.Card.DECK_ID + "=?",
+                        new String[]{String.valueOf(deckId)},
+                        null
+                );
+                if (cardCursor == null) {
+                    // Fallback to unfiltered query; we'll filter manually if the deck column exists.
+                    cardCursor = mContext.getContentResolver().query(
+                            cardsUri,
+                            new String[]{FlashCardsContract.Card.NOTE_ID, FlashCardsContract.Card.DECK_ID},
+                            null,
+                            null,
+                            null
+                    );
+                }
+                if (cardCursor != null) {
+                    int noteIdx = cardCursor.getColumnIndex(FlashCardsContract.Card.NOTE_ID);
+                    int didIdx = cardCursor.getColumnIndex(FlashCardsContract.Card.DECK_ID);
+                    while (cardCursor.moveToNext() && noteIds.size() < cap) {
+                        if (noteIdx == -1) continue;
+                        if (didIdx != -1) {
+                            long did = cardCursor.getLong(didIdx);
+                            if (did != deckId) continue;
+                        }
+                        long nid = cardCursor.getLong(noteIdx);
+                        if (!noteIds.contains(nid)) {
+                            noteIds.add(nid);
+                        }
+                    }
+                }
+            } catch (IllegalArgumentException e) {
+                Log.w("AnkiDroidHelper", "Card deck filter not supported: " + e.getMessage());
+            } finally {
+                if (cardCursor != null) cardCursor.close();
+            }
+        }
+        int cardTablePulled = noteIds.size() - reviewPulled - noteTablePulled;
+
+        // Fallback: if still insufficient, try note search by deck name and filter cards by deckId.
+        int deckSearchPulled = 0;
+        if (noteIds.size() < cap) {
+            String deckName = null;
+            try {
+                deckName = mApi.getDeckName(deckId);
+            } catch (Exception ignored) {
+            }
+            if (deckName != null && !deckName.isEmpty()) {
+                String escaped = deckName.replace("\"", "\\\"");
+                String search = "deck:\"" + escaped + "\"";
+                Cursor searchCursor = null;
+                try {
+                    searchCursor = mContext.getContentResolver().query(
+                            FlashCardsContract.Note.CONTENT_URI,
+                            new String[]{FlashCardsContract.Note._ID},
+                            search,
+                            null,
+                            null
+                    );
+                    if (searchCursor != null) {
+                        int idIdx = searchCursor.getColumnIndex(FlashCardsContract.Note._ID);
+                        while (searchCursor.moveToNext() && noteIds.size() < cap) {
+                            if (idIdx == -1) continue;
+                            long nid = searchCursor.getLong(idIdx);
+                            // Ensure this note has at least one card in the target deck.
+                            Uri noteBase = Uri.withAppendedPath(FlashCardsContract.Note.CONTENT_URI, Long.toString(nid));
+                            Uri cardsUri = Uri.withAppendedPath(noteBase, "cards");
+                            Cursor cardCursor = null;
+                            boolean inDeck = false;
+                            try {
+                                cardCursor = mContext.getContentResolver().query(
+                                        cardsUri,
+                                        new String[]{FlashCardsContract.Card.DECK_ID},
+                                        null,
+                                        null,
+                                        null
+                                );
+                                if (cardCursor != null) {
+                                    int didIdx = cardCursor.getColumnIndex(FlashCardsContract.Card.DECK_ID);
+                                    while (cardCursor.moveToNext()) {
+                                        if (didIdx != -1 && cardCursor.getLong(didIdx) == deckId) {
+                                            inDeck = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            } catch (IllegalArgumentException e) {
+                                Log.w("AnkiDroidHelper", "Note search card filter failed for note " + nid + ": " + e.getMessage());
+                            } finally {
+                                if (cardCursor != null) cardCursor.close();
+                            }
+                            if (inDeck && !noteIds.contains(nid)) {
+                                noteIds.add(nid);
+                                deckSearchPulled++;
+                            }
+                        }
+                    }
+                } catch (IllegalArgumentException e) {
+                    Log.w("AnkiDroidHelper", "Note search by deck not supported: " + e.getMessage());
+                } finally {
+                    if (searchCursor != null) searchCursor.close();
+                }
+            }
+        }
+
+        if (noteIds.isEmpty()) return result;
+        Collections.shuffle(noteIds);
+        final Set<TemplateKey> storedTemplates = ignoreTemplateFilter
+                ? java.util.Collections.emptySet()
+                : UserPreferences.INSTANCE.getTemplateFilter(mContext);
+        Set<TemplateKey> allowedTemplates = storedTemplates;
+        if (!ignoreTemplateFilter && !storedTemplates.isEmpty()) {
+            // Workaround: if template list for this deck cannot be loaded or has no overlap, ignore filter.
+            List<TemplateOption> deckTemplates = getTemplateOptionsForDeck(deckId);
+            if (deckTemplates.isEmpty()) {
+                allowedTemplates = java.util.Collections.emptySet();
+            } else {
+                Set<TemplateKey> deckKeys = new LinkedHashSet<>();
+                for (TemplateOption opt : deckTemplates) {
+                    deckKeys.add(new TemplateKey(opt.modelId, opt.ord));
+                }
+                boolean overlaps = false;
+                for (TemplateKey key : storedTemplates) {
+                    if (deckKeys.contains(key)) {
+                        overlaps = true;
+                        break;
+                    }
+                }
+                if (!overlaps) {
+                    allowedTemplates = java.util.Collections.emptySet();
+                }
+            }
+        }
+        Map<Long, Integer> modelCardCountCache = new HashMap<>();
+
+        Log.d("AnkiDroidHelper", "fetchRandomDeckCards: deckId=" + deckId + " noteCount=" + noteIds.size() + " target=" + targetCount + " sampleLimit=" + cap + " templateFilterSize=" + allowedTemplates.size() + " ignoreFilter=" + ignoreTemplateFilter + " reviewPull=" + reviewPulled + " noteTablePull=" + noteTablePulled + " cardTablePull=" + cardTablePulled + " deckSearchPull=" + deckSearchPulled);
+        for (Long noteId : noteIds) {
+            if (result.size() >= targetCount) break;
+            long modelId = fetchModelId(noteId);
+            if (modelId == -1) continue;
+            int numCards = getModelCardCount(modelId, modelCardCountCache);
+            if (numCards <= 0) continue;
+
+            ArrayList<Integer> ords = new ArrayList<>();
+            for (int ord = 0; ord < numCards; ord++) {
+                if (allowedTemplates.isEmpty() || templateMatches(allowedTemplates, new TemplateKey(modelId, ord))) {
+                    ords.add(ord);
+                }
+            }
+            if (ords.isEmpty()) continue;
+            Collections.shuffle(ords);
+            Uri noteBase = Uri.withAppendedPath(FlashCardsContract.Note.CONTENT_URI, Long.toString(noteId));
+            Uri cardsUri = Uri.withAppendedPath(noteBase, "cards");
+            for (Integer ord : ords) {
+                if (result.size() >= targetCount) break;
+                Uri specificCardUri = Uri.withAppendedPath(cardsUri, Integer.toString(ord));
+                Cursor specificCardCursor = null;
+                try {
+                    specificCardCursor = mContext.getContentResolver().query(
+                            specificCardUri,
+                            CARD_PROJECTION,
+                            null,
+                            null,
+                            null
+                    );
+                    if (specificCardCursor != null && specificCardCursor.moveToFirst()) {
+                        CardInfo card = new CardInfo();
+                        card.cardOrd = ord;
+                        card.noteID = noteId;
+                        card.modelId = modelId;
+                        card.rawAnswer = specificCardCursor.getString(specificCardCursor.getColumnIndex(FlashCardsContract.Card.ANSWER));
+                        card.rawQuestion = specificCardCursor.getString(specificCardCursor.getColumnIndex(FlashCardsContract.Card.QUESTION));
+                        card.simpleAnswer = specificCardCursor.getString(specificCardCursor.getColumnIndex(FlashCardsContract.Card.ANSWER_PURE));
+                        card.simpleQuestion = specificCardCursor.getString(specificCardCursor.getColumnIndex(FlashCardsContract.Card.QUESTION_SIMPLE));
+                        card.a = card.rawAnswer != null && !card.rawAnswer.isEmpty() ? card.rawAnswer : card.simpleAnswer;
+                        card.q = card.rawQuestion != null && !card.rawQuestion.isEmpty() ? card.rawQuestion : card.simpleQuestion;
+                        card.cardStartTime = System.currentTimeMillis();
+                        result.add(card);
+                    } else {
+                        Log.w("AnkiDroidHelper", "No card for note " + noteId + " ord " + ord + ", skipping.");
+                    }
+                } catch (IllegalArgumentException e) {
+                    Log.w("AnkiDroidHelper", "Query failed for note " + noteId + " ord " + ord + ": " + e.getMessage());
+                } catch (Exception e) {
+                    Log.w("AnkiDroidHelper", "Unexpected error for note " + noteId + " ord " + ord + ": " + e.getMessage());
+                } finally {
+                    if (specificCardCursor != null) {
+                        specificCardCursor.close();
+                    }
+                }
+            }
+        }
+        Log.d("AnkiDroidHelper", "fetchRandomDeckCards: built cards=" + result.size() + " ignoreFilter=" + ignoreTemplateFilter);
+        if (result.isEmpty() && !ignoreTemplateFilter && !UserPreferences.INSTANCE.getTemplateFilter(mContext).isEmpty()) {
+            Log.w("AnkiDroidHelper", "No random cards matched template filter; falling back to all templates for deck " + deckId);
+            return fetchRandomDeckCardsInternal(deckId, targetCount, cap, true, useReviewQueue);
+        }
+        return result;
+    }
+
+    private int getModelCardCount(long modelId, Map<Long, Integer> cache) {
+        if (cache.containsKey(modelId)) return cache.get(modelId);
+        int numCards = 0;
+        Uri modelUri = Uri.withAppendedPath(FlashCardsContract.Model.CONTENT_URI, Long.toString(modelId));
+        Cursor modelCursor = mContext.getContentResolver().query(
+                modelUri,
+                new String[]{FlashCardsContract.Model.NUM_CARDS},
+                null,
+                null,
+                null
+        );
+        if (modelCursor != null) {
+            try {
+                if (modelCursor.moveToFirst()) {
+                    numCards = modelCursor.getInt(modelCursor.getColumnIndex(FlashCardsContract.Model.NUM_CARDS));
+                }
+            } finally {
+                modelCursor.close();
+            }
+        }
+        cache.put(modelId, numCards);
+        return numCards;
     }
 
     public boolean reviewCard(long noteID, int cardOrd, long cardStartTime, int ease) {
@@ -391,27 +777,26 @@ public class AnkiDroidHelper {
             return result;
         }
 
-        // 1) First fetch note/model info from the current deck's review queue to ensure only cards from this deck.
-        Set<TemplateKey> templateKeys = new HashSet<>();
-        Set<Long> modelIds = new HashSet<>();
+        // Collect models seen in the current deck's review queue. This avoids picking up templates
+        // from other decks when provider parameters are ignored.
+        Set<Long> modelIds = new LinkedHashSet<>();
         String selection = "deckID=?";
         String[] args = new String[]{String.valueOf(deckId)};
         Cursor reviewCursor = mContext.getContentResolver().query(
                 FlashCardsContract.ReviewInfo.CONTENT_URI,
-                new String[]{FlashCardsContract.ReviewInfo.NOTE_ID, FlashCardsContract.ReviewInfo.CARD_ORD},
+                new String[]{FlashCardsContract.ReviewInfo.NOTE_ID},
                 selection,
                 args,
                 null
         );
         if (reviewCursor != null) {
             try {
-                if (reviewCursor.moveToFirst()) {
+                int noteIdx = reviewCursor.getColumnIndex(FlashCardsContract.ReviewInfo.NOTE_ID);
+                if (noteIdx != -1 && reviewCursor.moveToFirst()) {
                     do {
-                        long noteId = reviewCursor.getLong(reviewCursor.getColumnIndex(FlashCardsContract.ReviewInfo.NOTE_ID));
-                        int ord = reviewCursor.getInt(reviewCursor.getColumnIndex(FlashCardsContract.ReviewInfo.CARD_ORD));
+                        long noteId = reviewCursor.getLong(noteIdx);
                         long modelId = fetchModelId(noteId);
                         if (modelId != -1) {
-                            templateKeys.add(new TemplateKey(modelId, ord));
                             modelIds.add(modelId);
                         }
                     } while (reviewCursor.moveToNext());
@@ -421,32 +806,12 @@ public class AnkiDroidHelper {
             }
         }
 
-        // 2) If the review queue is empty, fall back to querying notes in the deck to collect model ids.
         if (modelIds.isEmpty()) {
-            Uri noteUri = FlashCardsContract.Note.CONTENT_URI.buildUpon()
-                    .appendQueryParameter(FlashCardsContract.Note.DECK_ID_QUERY_PARAM, String.valueOf(deckId))
-                    .build();
-            Cursor noteCursor = mContext.getContentResolver().query(
-                    noteUri,
-                    new String[]{FlashCardsContract.Note.MID},
-                    null,
-                    null,
-                    null
-            );
-            if (noteCursor != null) {
-                try {
-                    if (noteCursor.moveToFirst()) {
-                        do {
-                            modelIds.add(noteCursor.getLong(noteCursor.getColumnIndex(FlashCardsContract.Note.MID)));
-                        } while (noteCursor.moveToNext());
-                    }
-                } finally {
-                    noteCursor.close();
-                }
-            }
+            return result;
         }
 
-        // 3) Build the full template list from those models (model name + template ord).
+        // Build the full template list from those models (model name + template ord), dedup by (modelId, ord).
+        Set<TemplateKey> templateKeys = new LinkedHashSet<>();
         for (Long modelId : modelIds) {
             Uri modelUri = Uri.withAppendedPath(FlashCardsContract.Model.CONTENT_URI, Long.toString(modelId));
             Cursor modelCursor = mContext.getContentResolver().query(
@@ -462,7 +827,10 @@ public class AnkiDroidHelper {
                         String modelName = modelCursor.getString(modelCursor.getColumnIndex(FlashCardsContract.Model.NAME));
                         int numCards = modelCursor.getInt(modelCursor.getColumnIndex(FlashCardsContract.Model.NUM_CARDS));
                         for (int ord = 0; ord < numCards; ord++) {
-                            result.add(new TemplateOption(modelId, ord, null, modelName));
+                            TemplateKey key = new TemplateKey(modelId, ord);
+                            if (templateKeys.add(key)) {
+                                result.add(new TemplateOption(modelId, ord, null, modelName));
+                            }
                         }
                     }
                 } finally {

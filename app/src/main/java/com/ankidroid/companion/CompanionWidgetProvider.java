@@ -10,7 +10,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.Bundle;
 import android.widget.RemoteViews;
-import com.ankidroid.companion.UserPreferences.WidgetMode;
+import com.ankidroid.companion.UserPreferences.CardSourceMode;
 
 public class CompanionWidgetProvider extends AppWidgetProvider {
     public static final String ACTION_REFRESH = "com.ankidroid.companion.widget.REFRESH";
@@ -32,6 +32,8 @@ public class CompanionWidgetProvider extends AppWidgetProvider {
     // Random mode cache
     private static final java.util.LinkedList<CardInfo> randomQueue = new java.util.LinkedList<>();
     private static int randomIndex = -1;
+    private static boolean randomRoamActive = false;
+    private static int lastQueueSize = -1;
 
     @Override
     public void onUpdate(Context context, AppWidgetManager appWidgetManager, int[] appWidgetIds) {
@@ -77,36 +79,31 @@ public class CompanionWidgetProvider extends AppWidgetProvider {
         StoredState state = helper.getStoredState();
         CardInfo card = null;
         String deckName = "";
-
         if (state != null && state.deckId > 0 && helper.isPermissionGranted()) {
             try {
                 String dn = helper.getApi().getDeckName(state.deckId);
                 deckName = dn != null ? dn : "";
-                WidgetMode mode = UserPreferences.INSTANCE.getWidgetMode(context);
-                if (mode == WidgetMode.QUEUE) {
-                    // Re-read the latest content for the current top-of-queue card.
-                    card = helper.getTopCardForDeck(state.deckId);
-                } else {
-                    // Random mode: keep current random card if exists; otherwise load a random one.
-                    if (randomIndex >= 0 && randomIndex < randomQueue.size()) {
-                        card = randomQueue.get(randomIndex);
-                    } else {
-                        card = helper.queryCurrentScheduledCard(state.deckId, WidgetMode.RANDOM);
-                        if (card != null) {
-                            randomQueue.clear();
-                            randomQueue.add(card);
-                            randomIndex = 0;
-                        }
-                    }
+                CardSourceMode mode = UserPreferences.INSTANCE.getCardSourceMode(context);
+                if (mode == CardSourceMode.REVIEW) {
+            card = helper.getTopCardForDeck(state.deckId);
+            randomQueue.clear();
+            randomIndex = -1;
+            randomRoamActive = false;
+            lastQueueSize = -1;
+        } else {
+            buildRandomCache(context, helper, state.deckId, mode);
+            if (randomIndex >= 0 && randomIndex < randomQueue.size()) {
+                card = randomQueue.get(randomIndex);
+            }
                 }
                 if (card != null) helper.storeState(state.deckId, card);
             } catch (Exception ignored) {
-                // Gracefully handle API lookup failures on cold start
                 card = null;
                 deckName = "";
             }
+        } else {
+            android.util.Log.w("CompanionWidget", "refreshAndUpdate: missing state or permission. state=" + state);
         }
-
         for (int id : ids) {
             updateWidget(context, manager, id, card);
         }
@@ -127,7 +124,7 @@ public class CompanionWidgetProvider extends AppWidgetProvider {
             }
         }
         FieldMode mode = UserPreferences.INSTANCE.getFieldMode(context);
-        WidgetMode widgetMode = UserPreferences.INSTANCE.getWidgetMode(context);
+        CardSourceMode widgetMode = UserPreferences.INSTANCE.getCardSourceMode(context);
 
         // Choose short labels on narrow widgets to avoid inflating button height
         boolean useShortLabels = false;
@@ -159,13 +156,25 @@ public class CompanionWidgetProvider extends AppWidgetProvider {
         views.setBoolean(R.id.widgetButtonGood, "setSingleLine", true);
         views.setBoolean(R.id.widgetButtonEasy, "setSingleLine", true);
 
-        if (card == null && state != null && state.cardOrd != -1) {
-            card = helper.queryCurrentScheduledCard(state.deckId, widgetMode);
+        if (card == null && state != null && state.cardOrd != -1 && helper.isPermissionGranted()) {
+            if (widgetMode == CardSourceMode.REVIEW) {
+                card = helper.queryCurrentScheduledCard(state.deckId, CardSourceMode.REVIEW);
+            } else {
+                buildRandomCache(context, helper, state.deckId, widgetMode);
+                if (randomIndex >= 0 && randomIndex < randomQueue.size()) {
+                    card = randomQueue.get(randomIndex);
+                }
+            }
         }
 
         if (card != null) {
             CharSequence front = NotificationsKt.sanitizeForWidget(card.rawQuestion, card.simpleQuestion);
             CharSequence back = NotificationsKt.sanitizeForWidget(card.rawAnswer, card.simpleAnswer);
+            android.util.Log.d("CompanionWidget",
+                    "render card deckId=" + (state != null ? state.deckId : -1)
+                            + " note=" + card.noteID + " ord=" + card.cardOrd + " model=" + card.modelId
+                            + " mode=" + widgetMode
+                            + " front=\"" + truncate(front, 160) + "\" back=\"" + truncate(back, 160) + "\"");
             views.setTextViewText(R.id.widgetTitle, deckName.isEmpty() ? context.getString(R.string.app_name) : deckName);
             int estimatedLines = estimateLines(front) + estimateLines(back);
             boolean showButtons = estimatedLines >= 3;
@@ -196,7 +205,23 @@ public class CompanionWidgetProvider extends AppWidgetProvider {
                 views.setTextViewText(R.id.widgetBack, back);
             }
             views.setViewVisibility(R.id.widgetButtons, showButtons ? android.view.View.VISIBLE : android.view.View.GONE);
-            if (widgetMode == WidgetMode.QUEUE) {
+            boolean showModeLabel = true;
+            if (widgetMode == CardSourceMode.REVIEW) {
+                views.setTextViewText(R.id.widgetRoamLabel, context.getString(R.string.widget_roam_label_review));
+                randomRoamActive = false;
+            } else if (widgetMode == CardSourceMode.RANDOM_QUEUE) {
+                if (randomRoamActive && lastQueueSize >= 0) {
+                    views.setTextViewText(R.id.widgetRoamLabel, context.getString(R.string.widget_roam_label_fallback, lastQueueSize));
+                } else {
+                    views.setTextViewText(R.id.widgetRoamLabel, context.getString(R.string.widget_roam_label_random_queue));
+                }
+            } else if (widgetMode == CardSourceMode.RANDOM_ROAM) {
+                views.setTextViewText(R.id.widgetRoamLabel, context.getString(R.string.widget_roam_label_random_roam));
+            } else {
+                showModeLabel = false;
+            }
+            views.setViewVisibility(R.id.widgetRoamLabel, showModeLabel ? android.view.View.VISIBLE : android.view.View.GONE);
+            if (widgetMode == CardSourceMode.REVIEW) {
                 views.setViewVisibility(R.id.widgetButtonAgain, android.view.View.VISIBLE);
                 views.setViewVisibility(R.id.widgetButtonHard, android.view.View.VISIBLE);
                 views.setViewVisibility(R.id.widgetButtonGood, android.view.View.VISIBLE);
@@ -226,6 +251,10 @@ public class CompanionWidgetProvider extends AppWidgetProvider {
         views.setOnClickPendingIntent(R.id.widgetCardArea, getPendingIntent(context, ACTION_OPEN_APP));
 
         manager.updateAppWidget(appWidgetId, views);
+
+        if (card == null) {
+            android.util.Log.w("CompanionWidget", "updateWidget: no card available. deckName=" + deckName + " state=" + state + " mode=" + widgetMode + " randomQueueSize=" + randomQueue.size());
+        }
     }
 
     private PendingIntent getPendingIntent(Context context, String action) {
@@ -263,7 +292,8 @@ public class CompanionWidgetProvider extends AppWidgetProvider {
             refreshAndUpdate(context);
             return;
         }
-        ensureRandomCache(context, helper, state.deckId);
+        CardSourceMode mode = UserPreferences.INSTANCE.getCardSourceMode(context);
+        buildRandomCache(context, helper, state.deckId, mode);
         switch (action) {
             case ACTION_RANDOM_PREV:
                 if (randomIndex > 0) randomIndex--;
@@ -273,7 +303,7 @@ public class CompanionWidgetProvider extends AppWidgetProvider {
                     randomIndex++;
                 } else {
                     // If at end, fetch another random and append
-                    CardInfo more = helper.queryCurrentScheduledCard(state.deckId, WidgetMode.RANDOM);
+                    CardInfo more = helper.queryCurrentScheduledCard(state.deckId, CardSourceMode.RANDOM_QUEUE);
                     if (more != null) {
                         randomQueue.add(more);
                         randomIndex = randomQueue.size() - 1;
@@ -282,9 +312,7 @@ public class CompanionWidgetProvider extends AppWidgetProvider {
                 break;
             case ACTION_RANDOM_REFRESH:
             case ACTION_REFRESH:
-                randomQueue.clear();
-                randomIndex = -1;
-                ensureRandomCache(context, helper, state.deckId);
+                buildRandomCache(context, helper, state.deckId, mode);
                 break;
             case ACTION_RANDOM_RESERVED:
                 // Hold: do nothing, just stay on current
@@ -297,19 +325,58 @@ public class CompanionWidgetProvider extends AppWidgetProvider {
         refreshAndUpdate(context);
     }
 
-    private void ensureRandomCache(Context context, AnkiDroidHelper helper, long deckId) {
-        if (!randomQueue.isEmpty() && randomIndex >= 0 && randomIndex < randomQueue.size()) {
-            return;
-        }
+    private String truncate(CharSequence text, int max) {
+        if (text == null) return "";
+        String s = text.toString();
+        if (s.length() <= max) return s;
+        return s.substring(0, max) + "…";
+    }
+
+    private void buildRandomCache(Context context, AnkiDroidHelper helper, long deckId, CardSourceMode mode) {
         int target = UserPreferences.INSTANCE.getRandomCacheSize(context);
+        int threshold = UserPreferences.INSTANCE.getRandomQueueThreshold(context);
+        int sampleLimit = UserPreferences.INSTANCE.getRandomSampleLimit(context);
         randomQueue.clear();
-        for (int i = 0; i < target; i++) {
-            CardInfo c = helper.queryCurrentScheduledCard(deckId, WidgetMode.RANDOM);
-            if (c != null) {
-                randomQueue.add(c);
+        randomIndex = -1;
+        randomRoamActive = false;
+        lastQueueSize = -1;
+
+        java.util.List<CardInfo> source = new java.util.ArrayList<>();
+        if (mode == CardSourceMode.RANDOM_QUEUE) {
+            java.util.List<CardInfo> queueCards = helper.fetchQueueCards(deckId, true);
+            lastQueueSize = queueCards.size();
+            if (queueCards.size() >= threshold) {
+                source = queueCards;
+            } else {
+                // Fallback to deck-random to keep the widget populated.
+                source = helper.fetchRandomDeckCards(deckId, target, sampleLimit);
+                randomRoamActive = true;
+            }
+        } else if (mode == CardSourceMode.RANDOM_ROAM) {
+            source = helper.fetchRandomDeckCardsNoReview(deckId, target, sampleLimit);
+            randomRoamActive = true;
+            lastQueueSize = -1;
+        }
+        // Fallback: if random source is empty (e.g., card provider unsupported), try a queue card to avoid blank widget.
+        if (source == null || source.isEmpty()) {
+            CardInfo fallback = helper.queryCurrentScheduledCard(deckId, CardSourceMode.REVIEW);
+            if (fallback != null) {
+                source = new java.util.ArrayList<>();
+                source.add(fallback);
+                randomRoamActive = false;
             }
         }
-        randomIndex = randomQueue.isEmpty() ? -1 : 0;
+        if (source != null) {
+            if (source.size() > target) {
+                java.util.Collections.shuffle(source);
+                source = source.subList(0, target);
+            }
+            randomQueue.addAll(source);
+        }
+        if (!randomQueue.isEmpty()) {
+            randomIndex = 0;
+        }
+        android.util.Log.d("CompanionWidget", "buildRandomCache: mode=" + mode + " deckId=" + deckId + " sourceSize=" + (source == null ? -1 : source.size()) + " queueSize=" + randomQueue.size() + " threshold=" + threshold + " randomRoamActive=" + randomRoamActive);
     }
 
     private void respondCard(Context context, int ease) {
@@ -320,8 +387,8 @@ public class CompanionWidgetProvider extends AppWidgetProvider {
             refreshAndUpdate(context);
             return;
         }
-        WidgetMode mode = UserPreferences.INSTANCE.getWidgetMode(context);
-        if (mode == WidgetMode.RANDOM) {
+        CardSourceMode mode = UserPreferences.INSTANCE.getCardSourceMode(context);
+        if (mode != CardSourceMode.REVIEW) {
             // In random mode, feedback buttons repurposed; keep just cycling random cards.
             handleRandomAction(context, ACTION_RANDOM_REFRESH);
             return;

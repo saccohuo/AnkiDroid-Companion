@@ -11,8 +11,8 @@ android {
         applicationId = "com.ankidroid.companion"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "0.1.1"
+        versionCode = 4
+        versionName = "0.1.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -47,6 +47,19 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+}
+
+// Copy a versioned APK alongside the original output after assembleDebug.
+val versionNameForApk = android.defaultConfig.versionName ?: "unknown"
+val copyDebugApkWithVersion = tasks.register<Copy>("copyDebugApkWithVersion") {
+    dependsOn("assembleDebug")
+    from(layout.buildDirectory.file("outputs/apk/debug/app-debug.apk"))
+    // Use a separate folder to avoid clashing with Android's own outputs.
+    into(layout.buildDirectory.dir("outputs/apk/versioned"))
+    rename { "AnkiDroid-Companion-$versionNameForApk.apk" }
+}
+afterEvaluate {
+    tasks.findByName("assembleDebug")?.finalizedBy(copyDebugApkWithVersion)
 }
 
 dependencies {

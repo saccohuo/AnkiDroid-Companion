@@ -208,16 +208,16 @@
             android:hint="@string/widget_interval_hint" />
 
         <TextView
-            android:id="@+id/widgetModeLabel"
+            android:id="@+id/cardSourceLabel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginStart="4dp"
             android:layout_marginEnd="4dp"
             android:layout_marginTop="4dp"
-            android:text="@string/widget_mode_label" />
+            android:text="@string/card_source_label" />
 
         <Spinner
-            android:id="@+id/widgetModeSpinner"
+            android:id="@+id/cardSourceSpinner"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:background="@android:drawable/btn_dropdown"
@@ -225,6 +225,59 @@
             android:layout_marginEnd="4dp"
             android:layout_marginBottom="12dp"
             android:spinnerMode="dropdown" />
+
+        <TextView
+            android:id="@+id/randomQueueThresholdLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:text="@string/random_queue_threshold_label" />
+
+        <EditText
+            android:id="@+id/randomQueueThresholdInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:layout_marginBottom="12dp"
+            android:inputType="number" />
+
+        <TextView
+            android:id="@+id/randomCacheSizeLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:text="@string/random_cache_size_label" />
+
+        <EditText
+            android:id="@+id/randomCacheSizeInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:layout_marginBottom="12dp"
+            android:inputType="number"
+            android:hint="@string/random_cache_size_hint" />
+
+        <TextView
+            android:id="@+id/randomSampleLimitLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:text="@string/random_sample_limit_label" />
+
+        <EditText
+            android:id="@+id/randomSampleLimitInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:layout_marginBottom="12dp"
+            android:inputType="number"
+            android:hint="@string/random_sample_limit_hint" />
 
     </LinearLayout>
 
